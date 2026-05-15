@@ -6587,8 +6587,7 @@ impl Any {
                     // `StoreRef` exposes interior-mutable `data_mut()` (no DerefMut).
                     // SAFETY: `has_one_ref()` confirms this is the sole holder;
                     // `Any` is JS-thread-only, so no concurrent access exists.
-                    let internal =
-                        unsafe { s.data_mut() }.as_bytes_mut().to_internal_blob();
+                    let internal = unsafe { s.data_mut() }.as_bytes_mut().to_internal_blob();
                     // PORT NOTE: Zig deref's the store; StoreRef::drop on replace handles it.
                     blob.free_content_type();
                     *self = Any::InternalBlob(internal);
