@@ -678,6 +678,7 @@ dependencies = [
  "bun_jsc",
  "bun_options_types",
  "bun_ptr",
+ "bun_wyhash",
  "const_format",
  "enum-map",
  "enumset",
