@@ -40,6 +40,7 @@ use bun_sys::{self as sys, Fd};
 use bun_wyhash::{Wyhash, Wyhash11};
 
 use crate::analytics;
+use crate::bin_real as bin;
 use crate::bun_bunfig::Arguments as Command;
 use crate::bun_progress::{Node as ProgressNode, Progress};
 use crate::lockfile::tree::is_filtered_dependency_or_workspace;
@@ -230,6 +231,15 @@ pub(crate) fn install_isolated_packages(
     packages_to_install: Option<&[PackageID]>,
 ) -> Result<crate::package_install::Summary, AllocError> {
     analytics::features::isolated_bun_install.fetch_add(1, Ordering::Relaxed);
+
+    // Prime `Bin::Linker::UMASK` on the main thread before any bin-linking
+    // tasks are scheduled. `ensure_umask()` uses a compare-exchange gate
+    // plus umask(0)/umask(prev) probe on the process-global umask — calling
+    // it later from worker threads would add a window where umask is
+    // temporarily 0 while concurrent mkdirat calls run (issue #29723).
+    // Hoisted install primes it the same way from its main-thread entry.
+    #[cfg(unix)]
+    bin::Linker::ensure_umask();
 
     // PORT NOTE: reshaped for borrowck — Zig holds `*Lockfile` while also
     // passing `*PackageManager` (which owns it); take a raw pointer so column
@@ -1699,12 +1709,12 @@ pub(crate) fn install_isolated_packages(
         // matches `Installer::NODE_MODULES_BUN`.
         let bun_modules_path = paths::path_literal!("node_modules/.bun");
 
-        match sys::mkdirat(Fd::cwd(), node_modules_path, 0o755) {
+        match sys::mkdirat(Fd::cwd(), node_modules_path, sys::UMASK_MKDIR_MODE) {
             Ok(()) => {
                 // fallthrough to creating bun_modules below
             }
             Err(_) => {
-                match sys::mkdirat(Fd::cwd(), bun_modules_path, 0o755) {
+                match sys::mkdirat(Fd::cwd(), bun_modules_path, sys::UMASK_MKDIR_MODE) {
                     Err(_) => break 'is_new_bun_modules false,
                     Ok(()) => {}
                 }
@@ -1733,7 +1743,7 @@ pub(crate) fn install_isolated_packages(
                         .assume_ok();
 
                     // 1
-                    if sys::mkdirat(Fd::cwd(), rename_path.slice_z(), 0o755).is_err() {
+                    if sys::mkdirat(Fd::cwd(), rename_path.slice_z(), sys::UMASK_MKDIR_MODE).is_err() {
                         break 'is_new_bun_modules true;
                     }
 
@@ -1847,12 +1857,12 @@ pub(crate) fn install_isolated_packages(
                     }
 
                     // 2
-                    if let Err(err) = sys::mkdirat(Fd::cwd(), node_modules_path, 0o755) {
+                    if let Err(err) = sys::mkdirat(Fd::cwd(), node_modules_path, sys::UMASK_MKDIR_MODE) {
                         Output::err(err, "failed to create './node_modules'", format_args!(""));
                         Global::exit(1);
                     }
 
-                    if let Err(err) = sys::mkdirat(Fd::cwd(), bun_modules_path, 0o755) {
+                    if let Err(err) = sys::mkdirat(Fd::cwd(), bun_modules_path, sys::UMASK_MKDIR_MODE) {
                         Output::err(
                             err,
                             "failed to create './node_modules/.bun'",
@@ -1936,7 +1946,7 @@ pub(crate) fn install_isolated_packages(
             }
         }
 
-        if let Err(err) = sys::mkdirat(Fd::cwd(), bun_modules_path, 0o755) {
+        if let Err(err) = sys::mkdirat(Fd::cwd(), bun_modules_path, sys::UMASK_MKDIR_MODE) {
             Output::err(
                 err,
                 "failed to create './node_modules/.bun'",
