@@ -1005,9 +1005,11 @@ Full documentation is available at <magenta>https://bun.com/docs/cli/pm#scan<r>.
         // PORT NOTE: Zig kept `args` (and its arena) alive for the program duration —
         // `cli` stores slices into it. Park the parsed `Args` in a process-global
         // `OnceLock` so outer slice borrows (`positionals()`, `options()`) are
-        // `'static`; inner `&[u8]` are argv-backed and already `'static`. CLI args
-        // are parsed exactly once per process, so this is the semantic equivalent
-        // of the Zig arena that was never `deinit`'d.
+        // `'static`; inner `&[u8]` are argv-backed and already `'static`. A few
+        // subcommands (e.g. `bun update [-i]`) re-enter `parse` with the same
+        // argv + same `Subcommand`, so the cell may already be populated on
+        // subsequent calls; the first parse's `Args` is canonical and is what
+        // survives for the program duration.
         static PARSED_ARGS: OnceLock<clap::Args<clap::Help>> = OnceLock::new();
         let args: &'static clap::Args<clap::Help> = match clap::parse::<clap::Help>(
             params,
@@ -1017,7 +1019,10 @@ Full documentation is available at <magenta>https://bun.com/docs/cli/pm#scan<r>.
             },
         ) {
             Ok(a) => {
-                // `set` only fails on second call; CLI parse runs once.
+                // On re-entry (e.g. `bun update` calls `parse` twice) `set`
+                // returns `Err(a)`; drop the fresh parse and fall through to
+                // the cached first one — argv is identical so the two are
+                // equivalent.
                 let _ = PARSED_ARGS.set(a);
                 PARSED_ARGS.get().unwrap()
             }
