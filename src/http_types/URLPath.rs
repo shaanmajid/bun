@@ -29,6 +29,14 @@ pub struct URLPath {
 }
 
 impl URLPath {
+    /// Hand back ownership of the percent-decode buffer (if any) and consume
+    /// `self`. The slice fields of this `URLPath` borrow from that buffer when
+    /// the input contained `%`, so any copies of those slices the caller has
+    /// already captured stay valid only while the returned `Box` is kept alive.
+    pub fn into_decoded_storage(self) -> Option<Box<[u8]>> {
+        self._decoded_storage
+    }
+
     pub fn is_root(&self, asset_prefix: &[u8]) -> bool {
         let without = self.path_without_asset_prefix(asset_prefix);
         if without.len() == 1 && without[0] == b'.' {

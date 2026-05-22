@@ -626,9 +626,12 @@ impl FileSystemRouter {
         // in `MatchedRoute.deinit` via `mi_free(pathname.ptr)`. We instead MOVE `path`
         // into `MatchedRoute` so the bytes that `route.pathname`/`query_string`/param
         // values borrow are owned by the same heap-stable Box and freed on finalize.
+        // Zig kept the percent-decode buffer in a threadlocal; the port gives each
+        // `URLPath` its own heap buffer, so that allocation must travel too.
         let result = MatchedRoute::init(
             route,
             path,
+            url_path.into_decoded_storage(),
             this.origin,
             this.asset_prefix,
             this.base_dir.unwrap(),
@@ -712,9 +715,10 @@ impl FileSystemRouter {
 pub struct MatchedRoute {
     /// Self-referential: always points at `self.route_holder`. See `init`.
     // PORT NOTE: `Match<'a>` borrows (a) the resolver's process-lifetime DirnameStore for
-    // `name`/`file_path`/`basename`/`path` and (b) `self.pathname_backing` for
-    // `pathname`/`query_string`/param values. Both are stable for `Self`'s lifetime, so
-    // the stored `'static` is the standard self-referential erasure — see `init`.
+    // `name`/`file_path`/`basename`/`path` and (b) `self.pathname_backing` or
+    // `self.decoded_path_backing` for `pathname`/`query_string`/param values. All are
+    // stable for `Self`'s lifetime, so the stored `'static` is the standard
+    // self-referential erasure — see `init`.
     pub route: *const RouterMatch<'static>,
     // PORT NOTE: `route_holder`/`params_list_holder` are wrapped in `UnsafeCell` because
     // `route` (above) and `route_holder.params` hold raw self-referential pointers into
@@ -727,9 +731,16 @@ pub struct MatchedRoute {
     pub param_map: JsCell<Option<QueryStringMap>>,
     pub params_list_holder: UnsafeCell<route_param::List<'static>>,
     /// Owns the bytes that `route_holder.pathname`/`query_string` and the param values in
-    /// `params_list_holder` borrow. Replaces the Zig leak-then-`mi_free(pathname.ptr)`
-    /// pattern with proper ownership; freed by Drop on finalize.
+    /// `params_list_holder` borrow when the input path was NOT percent-encoded. Replaces
+    /// the Zig leak-then-`mi_free(pathname.ptr)` pattern with proper ownership; freed by
+    /// Drop on finalize.
     pub pathname_backing: ZigStringSlice,
+    /// Owns the percent-decoded bytes that `route_holder.pathname`/`query_string` and the
+    /// param values borrow when the input path WAS percent-encoded. Zig kept these in a
+    /// threadlocal buffer; the Rust port allocates per-`URLPath`, so ownership must follow
+    /// the slices into this struct. Moving the `Box` does not move the heap bytes, so the
+    /// self-referential slices captured in `route_holder`/`params_list_holder` stay valid.
+    pub decoded_path_backing: Option<Box<[u8]>>,
     // BACKREF — interned `RefString`s; we hold +1 (bumped in `init`, released in
     // `deinit`). The interned allocation outlives every `MatchedRoute`.
     pub origin: Option<BackRef<RefString>>,
@@ -765,6 +776,7 @@ impl MatchedRoute {
     pub fn init(
         match_: RouterMatch<'_>,
         pathname_backing: ZigStringSlice,
+        decoded_path_backing: Option<Box<[u8]>>,
         origin: Option<BackRef<RefString>>,
         asset_prefix: Option<BackRef<RefString>>,
         base_dir: BackRef<RefString>,
@@ -778,10 +790,11 @@ impl MatchedRoute {
         //   (a) `name`/`file_path`/`basename`/`path` slice the resolver's DirnameStore
         //       (process-lifetime arena, see `bun_router::PathString::slice`), so are
         //       genuinely `'static`;
-        //   (b) `pathname`/`query_string` and the param `value`s slice `pathname_backing`,
-        //       which we move into the same heap-stable Box below. The Box is never moved
-        //       after construction (JsClass m_ctx payload), so those bytes are valid for
-        //       `Self`'s lifetime.
+        //   (b) `pathname`/`query_string` and the param `value`s slice either
+        //       `pathname_backing` (no `%` in the input) or `decoded_path_backing`
+        //       (percent-encoded input). Both owners are moved into the same heap-stable
+        //       Box below. The Box is never moved after construction (JsClass m_ctx
+        //       payload), so those bytes are valid for `Self`'s lifetime.
         // `params` is a raw `*mut`; re-pointed at `params_list_holder` below before any
         // read through it. This is the standard Rust self-referential pattern (no
         // `Pin`/ouroboros because JsClass codegen owns the Box<Self>); it does NOT extend
@@ -807,6 +820,7 @@ impl MatchedRoute {
             param_map: JsCell::new(None),
             params_list_holder: UnsafeCell::new(params_list),
             pathname_backing,
+            decoded_path_backing,
             needs_deinit: true,
         });
         // PORT NOTE: `base_dir.ref()` / `o.ref()` / `prefix.ref()` — bump refcounts.
@@ -841,6 +855,7 @@ impl MatchedRoute {
             // `pathname_backing`; dropping it (and `params_list_holder`) here releases the
             // borrowed bytes BEFORE `route_holder`'s slices would dangle on Box drop.
             this_ref.pathname_backing = ZigStringSlice::EMPTY;
+            this_ref.decoded_path_backing = None;
             *this_ref.params_list_holder.get_mut() = route_param::List::default();
         }
 

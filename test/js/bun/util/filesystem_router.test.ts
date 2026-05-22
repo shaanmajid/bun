@@ -431,6 +431,47 @@ it(".query works with dynamic routes, including params", () => {
   }
 });
 
+it(".query works with percent-encoded query string", () => {
+  const { dir } = make(["search.tsx"]);
+
+  const router = new Bun.FileSystemRouter({
+    dir,
+    style: "nextjs",
+    origin: "https://example.com",
+  });
+
+  for (const current of ["/search?q=hello%20world", new Request("https://example.com/search?q=hello%20world")]) {
+    const match = router.match(current)!;
+    expect(match.query).toEqual({ q: "hello world" });
+    expect(match.pathname).toBe("/search?q=hello world");
+    expect(match.name).toBe("/search");
+  }
+});
+
+it(".params works with percent-encoded dynamic segments", () => {
+  const { dir } = make(["posts/[id].tsx"]);
+
+  const router = new Bun.FileSystemRouter({
+    dir,
+    style: "nextjs",
+    origin: "https://example.com",
+  });
+
+  for (const current of [
+    "/posts/hello%20world",
+    new Request("https://example.com/posts/hello%20world"),
+    "/posts/hello%20world?a=b%20c",
+  ]) {
+    const match = router.match(current)!;
+    expect(match.params).toEqual({ id: "hello world" });
+    expect(match.name).toBe("/posts/[id]");
+    expect(match.pathname.startsWith("/posts/hello world")).toBe(true);
+  }
+
+  const withQuery = router.match("/posts/hello%20world?a=b%20c")!;
+  expect(withQuery.query).toEqual({ id: "hello world", a: "b c" });
+});
+
 it("dir should be validated", async () => {
   expect(() => {
     //@ts-ignore
