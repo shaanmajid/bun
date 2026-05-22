@@ -113,10 +113,38 @@ void MessagePort::start()
     m_pipe->attach(m_side, context->identifier(), ThreadSafeWeakPtr<MessagePort> { *this });
 }
 
+void MessagePort::flushQueuedMessagesBeforeClose()
+{
+    auto* context = scriptExecutionContext();
+    if (!context || !context->globalObject())
+        return;
+    auto* globalObject = defaultGlobalObject(context->globalObject());
+    // Only deliver while JS can run. During context teardown the queue is left
+    // for m_pipe->close() to drop (it unwinds nested transferred-port chains
+    // iteratively to avoid a native stack overflow).
+    if (Zig::GlobalObject::scriptExecutionStatus(globalObject, globalObject) != ScriptExecutionStatus::Running)
+        return;
+
+    while (auto message = m_pipe->takeOne(m_side)) {
+        dispatchOneMessage(*context, WTF::move(*message));
+        if (globalObject->drainMicrotasks())
+            break; // termination pending
+    }
+}
+
 void MessagePort::close()
 {
-    if (m_isDetached)
+    if (m_isDetached || m_isClosing)
         return;
+    m_isClosing = true;
+
+    // Deliver messages already queued before close() so they are not dropped
+    // (node defers the underlying handle teardown, so an in-flight drain
+    // finishes the queue). A reentrant close() from one of these handlers is
+    // short-circuited by m_isClosing; messages arriving after close() are
+    // rejected by the pipe's Closed check in send().
+    flushQueuedMessagesBeforeClose();
+
     m_isDetached = true;
 
     // m_pipe is held for the port's whole lifetime (the GC thread reads

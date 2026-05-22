@@ -120,6 +120,9 @@ private:
 
     void contextDestroyed() final;
 
+    // Deliver messages already queued when close() is called, before teardown.
+    void flushQueuedMessagesBeforeClose();
+
     bool isEntangled() const { return !m_isDetached; }
 
     // Held for the port's entire lifetime — never nulled — so that the GC
@@ -130,6 +133,7 @@ private:
 
     bool m_started { false };
     bool m_isDetached { false };
+    bool m_isClosing { false };
     bool m_hasMessageEventListener { false };
     bool m_hasRef { false };
 
