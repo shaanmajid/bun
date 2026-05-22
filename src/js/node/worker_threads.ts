@@ -5,6 +5,7 @@ type WebWorker = InstanceType<typeof globalThis.Worker>;
 
 const EventEmitter = require("node:events");
 const Readable = require("internal/streams/readable");
+const Writable = require("internal/streams/writable");
 const { throwNotImplemented, warnNotImplementedOnce } = require("internal/shared");
 const { validateString } = require("internal/validators");
 
@@ -202,10 +203,64 @@ Object.defineProperty(MessagePort.prototype, "close", {
 
 let resourceLimits = {};
 
+const BUN_WORKER_STDIO_KEY = "@@bunWorkerThreadsStdio";
+
+// Readable fed by a control MessagePort (worker.stdout/stderr on the parent,
+// process.stdin in the worker). The peer posts Buffers; null signals EOF.
+function makePortReadable(port) {
+  const stream = new Readable({ read() {} });
+  function onMessage(chunk) {
+    if (chunk === null) {
+      stream.push(null);
+      // Drop the listener so the control port stops holding the event loop
+      // open once the stream has ended.
+      port.off("message", onMessage);
+    } else {
+      stream.push(Buffer.from(chunk));
+    }
+  }
+  port.on("message", onMessage);
+  return stream;
+}
+
+// Writable that forwards chunks over a control MessagePort (worker.stdin on the
+// parent, process.stdout/stderr in the worker). final() posts null as EOF.
+function makePortWritable(port) {
+  return new Writable({
+    write(chunk, encoding, cb) {
+      port.postMessage(typeof chunk === "string" ? Buffer.from(chunk, encoding) : chunk);
+      cb();
+    },
+    final(cb) {
+      port.postMessage(null);
+      cb();
+    },
+  });
+}
+
+function setupWorkerStdio(stdio) {
+  if (stdio.stdout) {
+    Object.defineProperty(process, "stdout", { value: makePortWritable(stdio.stdout), writable: true, configurable: true, enumerable: true });
+  }
+  if (stdio.stderr) {
+    Object.defineProperty(process, "stderr", { value: makePortWritable(stdio.stderr), writable: true, configurable: true, enumerable: true });
+  }
+  if (stdio.stdin) {
+    Object.defineProperty(process, "stdin", { value: makePortReadable(stdio.stdin), writable: true, configurable: true, enumerable: true });
+  }
+}
+
 let workerData = _workerData;
 let threadId = _threadId;
 // node: main thread name is "", worker default is "WorkerThread" (trimmed).
 const threadName = isMainThread ? "" : normalizeWorkerName(_threadName);
+// Captured stdio rides inside workerData (wrapped; ports transferred). Unwrap
+// it and bind the worker's process.stdout/stderr/stdin to the control ports.
+if (workerData && typeof workerData === "object" && BUN_WORKER_STDIO_KEY in workerData) {
+  const stdioPorts = workerData[BUN_WORKER_STDIO_KEY];
+  workerData = workerData.data;
+  setupWorkerStdio(stdioPorts);
+}
 function receiveMessageOnPort(port: MessagePort) {
   let res = _receiveMessageOnPort(port);
   if (!res) return undefined;
@@ -322,6 +377,12 @@ class Worker extends EventEmitter {
   #performance;
   #name: string;
   #exited = false;
+  #stdinPort;
+  #stdoutPort;
+  #stderrPort;
+  #stdin;
+  #stdout;
+  #stderr;
 
   // this is used by terminate();
   // either is the exit code if exited, a promise resolving to the exit code, or undefined if we haven't sent .terminate() yet
@@ -349,6 +410,38 @@ class Worker extends EventEmitter {
       // node validates the worker path when not running eval'd code.
       filename = validateWorkerFilename(filename);
     }
+
+    // node-style captured stdio: a control MessageChannel per requested stream.
+    // Keep the parent end here; hand the worker end to the worker via workerData
+    // (transferred). The worker unwraps it and rebinds its process stdio.
+    const stdioForWorker: any = {};
+    const stdioTransfer: any[] = [];
+    if (options.stdin) {
+      const channel = new MessageChannel();
+      this.#stdinPort = channel.port1;
+      stdioForWorker.stdin = channel.port2;
+      stdioTransfer.push(channel.port2);
+    }
+    if (options.stdout) {
+      const channel = new MessageChannel();
+      this.#stdoutPort = channel.port1;
+      stdioForWorker.stdout = channel.port2;
+      stdioTransfer.push(channel.port2);
+    }
+    if (options.stderr) {
+      const channel = new MessageChannel();
+      this.#stderrPort = channel.port1;
+      stdioForWorker.stderr = channel.port2;
+      stdioTransfer.push(channel.port2);
+    }
+    if (stdioTransfer.length > 0) {
+      options = {
+        ...options,
+        workerData: { [BUN_WORKER_STDIO_KEY]: stdioForWorker, data: options.workerData },
+        transferList: options.transferList ? [...options.transferList, ...stdioTransfer] : stdioTransfer,
+      };
+    }
+
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
     } catch (e) {
@@ -390,18 +483,18 @@ class Worker extends EventEmitter {
   }
 
   get stdin() {
-    // TODO:
-    return null;
+    if (this.#stdinPort === undefined) return null;
+    return (this.#stdin ??= makePortWritable(this.#stdinPort));
   }
 
   get stdout() {
-    // TODO:
-    return null;
+    if (this.#stdoutPort === undefined) return null;
+    return (this.#stdout ??= makePortReadable(this.#stdoutPort));
   }
 
   get stderr() {
-    // TODO:
-    return null;
+    if (this.#stderrPort === undefined) return null;
+    return (this.#stderr ??= makePortReadable(this.#stderrPort));
   }
 
   get performance() {
