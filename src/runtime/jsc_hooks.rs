@@ -4595,9 +4595,11 @@ pub(crate) fn resolve_embedded_file_to_buf(
 
     // SAFETY: `graph` is the `UnsafeCell::get()` pointer to the process-
     // lifetime singleton; `EXTRACTED_PATH_LOCK` (just acquired above)
-    // serialises the `&mut File` that `find()` returns across Worker VMs,
-    // so no other thread holds an overlapping `&mut` into the same graph
-    // for the rest of this function.
+    // serialises the `&mut File` against other callers of *this function*
+    // across Worker VMs, which are the only ones that write
+    // `file.extracted_path`. Other `Graph::get()` callers
+    // (`load_standalone_sourcemap`, `node_fs`, `Blob`) follow the existing
+    // read-only-after-init convention on the fields they touch.
     let file = (unsafe { &mut *graph }).find(input_path)?;
     let file_contents: &[u8] = file.contents.as_bytes();
 
