@@ -441,6 +441,20 @@ impl FileSink {
 
             (*this).run_pending_later.has.set(false);
 
+            // If the owning VM is shutting down, resolving the pending write
+            // promise would drain microtasks through a tearing-down worker
+            // global (see issue #31224: crash chain was PipeWriter →
+            // FileSink::onWrite → JSNextTickQueue::drain on Windows worker
+            // shutdown). Drop the future without touching JSPromise.
+            let is_shutting_down = (*this)
+                .js_vm()
+                .is_some_and(|vm| vm.is_shutting_down());
+            if is_shutting_down {
+                (*this).pending.with_mut(|p| p.discard());
+                (*this).js_sink_ref.with_mut(|r| r.deinit());
+                return;
+            }
+
             let _entered = (*this).event_loop().entered();
             // SAFETY(JsCell): `WritablePending::run` resolves a JSPromise which may
             // re-enter JS, but no other path holds a borrow of `self.pending` for

@@ -1092,6 +1092,35 @@ mod windows_impl {
         /// `this` must point to a live `WriteFileWindows` allocated via [`Self::new`].
         /// On return, `*this` has been freed and must not be accessed again.
         pub unsafe fn on_finish(this: *mut Self) -> WriteFileWindowsError {
+            // Issue #31224: the uv_fs_write completion can arrive after the
+            // owning worker VM began shutdown (crash chain on Windows:
+            // `uv__process_pipe_write_req` → `on_write_complete` → `on_finish`
+            // → `run_from_js_thread` → JSPromise resolve → `JSNextTickQueue::drain`
+            // on a tearing-down worker global). Entering the event loop at
+            // this point drains microtasks through a dead JSC context.
+            //
+            // If the VM is shutting down, drop the `WriteFilePromise` handler
+            // without resolving, free `*this`, and return. The JS promise
+            // stays unresolved — it's only observable from the worker global
+            // that is itself being torn down.
+            // SAFETY: `this` is live (caller contract); `event_loop` is the
+            // VM-owned `*mut EventLoop` set in `create_with_ctx`. The
+            // `virtual_machine` field is `Option<NonNull<VirtualMachine>>` set
+            // in `VirtualMachine::init`; reading it forms no long-lived borrow.
+            let is_shutting_down = unsafe {
+                (*(*this).event_loop)
+                    .virtual_machine
+                    .is_some_and(|vm| vm.as_ref().is_shutting_down())
+            };
+            if is_shutting_down {
+                // SAFETY: `on_complete_ctx` is the boxed `WriteFilePromise`
+                // passed in at `create_with_ctx` (paired with `WriteFilePromise::run`
+                // in `Blob::write_file`). `this` is consumed by `deinit` below.
+                unsafe { WriteFilePromise::discard((*this).on_complete_ctx) };
+                unsafe { Self::deinit(this) };
+                return WriteFileWindowsError::WriteFileWindowsDeinitialized;
+            }
+
             // SAFETY: VM-owned EventLoop lives for process lifetime; the guard
             // forms short-lived `&mut` only at the enter/exit call sites (see
             // EventLoopEnterGuard docs) so it does not alias `*this`.
@@ -1326,6 +1355,25 @@ impl WriteFilePromise {
             }
         }
         Ok(())
+    }
+
+    /// Free the boxed `WriteFilePromise` without resolving or rejecting the
+    /// pending JSPromise. Used by [`WriteFileWindows::on_finish`] when the
+    /// owning worker VM is already shutting down (issue #31224) — entering
+    /// the event loop on the tearing-down global to resolve the promise
+    /// would drain microtasks against a dead JSC context and crash via
+    /// `JSNextTickQueue::drain`. Dropping the `JSPromiseStrong` inside the
+    /// boxed handler releases its GC slot without any JS dispatch.
+    ///
+    /// # Safety
+    /// `handler` must be a Box-allocated `WriteFilePromise` (matching the
+    /// allocation `run` would consume). Consumes the allocation.
+    pub unsafe fn discard(handler: *mut c_void) {
+        // SAFETY: caller contract — boxed `WriteFilePromise`; consumed here.
+        // `JSPromiseStrong: Drop` releases the handle slot on the JS thread.
+        unsafe {
+            drop(bun_core::heap::take(handler.cast::<Self>()));
+        }
     }
 }
 

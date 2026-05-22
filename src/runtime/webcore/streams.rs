@@ -541,6 +541,23 @@ impl WritablePending {
             WritableFuture::None => {}
         }
     }
+
+    /// Drop the pending write's stored future without resolving/rejecting the
+    /// JSPromise or invoking the handler. Used on the worker-shutdown path
+    /// where the owning VM is tearing down and the promise's global is no
+    /// longer safe to touch — any resolution would drain microtasks into a
+    /// shutting-down global (see `FileSink::run_pending` and
+    /// `WriteFileWindows::on_finish`). Marks the pending used so subsequent
+    /// `run`/`discard` calls are no-ops; the `JSPromiseStrong` handle slot is
+    /// released by dropping `WritableFuture::Promise`.
+    pub fn discard(&mut self) {
+        if self.state != PendingState::Pending {
+            return;
+        }
+        self.state = PendingState::Used;
+        self.result = Writable::Done;
+        self.future = WritableFuture::None;
+    }
 }
 
 impl Writable {
