@@ -666,6 +666,7 @@ JSValue createNodeWorkerThreadsBinding(Zig::GlobalObject* globalObject)
     auto scope = DECLARE_THROW_SCOPE(globalObject->vm());
     JSValue workerData = jsNull();
     JSValue threadId = jsNumber(0);
+    JSValue threadName = jsEmptyString(vm);
     JSMap* environmentData = nullptr;
 
     if (auto* worker = WebWorker__getParentWorker(globalObject->bunVM())) {
@@ -699,6 +700,7 @@ JSValue createNodeWorkerThreadsBinding(Zig::GlobalObject* globalObject)
 
         // Main thread starts at 1
         threadId = jsNumber(worker->clientIdentifier() - 1);
+        threadName = jsString(vm, options.name);
     }
     if (!environmentData) {
         environmentData = JSMap::create(vm, globalObject->mapStructure());
@@ -707,12 +709,13 @@ JSValue createNodeWorkerThreadsBinding(Zig::GlobalObject* globalObject)
     ASSERT(environmentData);
     globalObject->setNodeWorkerEnvironmentData(environmentData);
 
-    JSObject* array = constructEmptyArray(globalObject, nullptr, 4);
+    JSObject* array = constructEmptyArray(globalObject, nullptr, 5);
     RETURN_IF_EXCEPTION(scope, {});
     array->putDirectIndex(globalObject, 0, workerData);
     array->putDirectIndex(globalObject, 1, threadId);
     array->putDirectIndex(globalObject, 2, JSFunction::create(vm, globalObject, 1, "receiveMessageOnPort"_s, jsReceiveMessageOnPort, ImplementationVisibility::Public, NoIntrinsic));
     array->putDirectIndex(globalObject, 3, environmentData);
+    array->putDirectIndex(globalObject, 4, threadName);
     return array;
 }
 

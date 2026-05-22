@@ -6,6 +6,18 @@ type WebWorker = InstanceType<typeof globalThis.Worker>;
 const EventEmitter = require("node:events");
 const Readable = require("internal/streams/readable");
 const { throwNotImplemented, warnNotImplementedOnce } = require("internal/shared");
+const { validateString } = require("internal/validators");
+
+// Mirror node's lib/internal/worker.js name handling: default "WorkerThread",
+// validate + trim when a name is provided.
+// https://github.com/nodejs/node/blob/main/lib/internal/worker.js
+function normalizeWorkerName(rawName) {
+  if (rawName) {
+    validateString(rawName, "options.name");
+    return rawName.trim();
+  }
+  return "WorkerThread";
+}
 
 const {
   MessageChannel,
@@ -25,11 +37,13 @@ const {
   1: _threadId,
   2: _receiveMessageOnPort,
   3: environmentData,
+  4: _threadName,
 } = $cpp("Worker.cpp", "createNodeWorkerThreadsBinding") as [
   unknown,
   number,
   (port: unknown) => unknown,
   Map<unknown, unknown>,
+  string,
 ];
 
 type NodeWorkerOptions = import("node:worker_threads").WorkerOptions;
@@ -70,28 +84,6 @@ function injectFakeEmitter(Class) {
     }
   }
 
-  Class.prototype.on = function (event, listener) {
-    this.addEventListener(event, functionForEventType(event, listener));
-
-    return this;
-  };
-
-  Class.prototype.off = function (event, listener) {
-    if (listener) {
-      this.removeEventListener(event, listener[wrappedListener] || listener);
-    } else {
-      this.removeEventListener(event);
-    }
-
-    return this;
-  };
-
-  Class.prototype.once = function (event, listener) {
-    this.addEventListener(event, functionForEventType(event, listener), { once: true });
-
-    return this;
-  };
-
   function EventClass(eventName) {
     if (eventName === "error" || eventName === "messageerror") {
       return ErrorEvent;
@@ -100,14 +92,42 @@ function injectFakeEmitter(Class) {
     return MessageEvent;
   }
 
-  Class.prototype.emit = function (event, ...args) {
-    this.dispatchEvent(new (EventClass(event))(event, ...args));
-
+  function on(event, listener) {
+    this.addEventListener(event, functionForEventType(event, listener));
     return this;
-  };
+  }
 
-  Class.prototype.prependListener = Class.prototype.on;
-  Class.prototype.prependOnceListener = Class.prototype.once;
+  function off(event, listener) {
+    if (listener) {
+      this.removeEventListener(event, listener[wrappedListener] || listener);
+    } else {
+      this.removeEventListener(event);
+    }
+    return this;
+  }
+
+  function once(event, listener) {
+    this.addEventListener(event, functionForEventType(event, listener), { once: true });
+    return this;
+  }
+
+  function emit(event, ...args) {
+    this.dispatchEvent(new (EventClass(event))(event, ...args));
+    return this;
+  }
+
+  // node exposes these via EventEmitter.prototype (inherited), not as own
+  // properties of MessagePort.prototype. Insert an intermediate prototype so
+  // Object.getOwnPropertyNames(MessagePort.prototype) matches node.
+  const proto = Class.prototype;
+  const inherited = Object.create(Object.getPrototypeOf(proto));
+  Object.defineProperty(inherited, "on", { value: on, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "off", { value: off, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "once", { value: once, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "emit", { value: emit, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "prependListener", { value: on, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "prependOnceListener", { value: once, writable: true, enumerable: false, configurable: true });
+  Object.setPrototypeOf(proto, inherited);
 }
 
 const _MessagePort = globalThis.MessagePort;
@@ -115,10 +135,32 @@ injectFakeEmitter(_MessagePort);
 
 const MessagePort = _MessagePort;
 
+// node: MessagePort.prototype.close(cb) registers cb as a one-time "close"
+// listener, then performs the native close.
+// https://github.com/nodejs/node/blob/main/lib/internal/worker/io.js
+const nativeMessagePortClose = MessagePort.prototype.close;
+Object.defineProperty(MessagePort.prototype, "close", {
+  value: function close(cb) {
+    if (typeof cb === "function") {
+      this.once("close", cb);
+    }
+    // Bun's native close() does not emit a "close" event. Dispatch it here,
+    // synchronously while the port is still attached, so registered listeners
+    // and the optional callback run — matching node's MessagePort close.
+    this.dispatchEvent(new Event("close"));
+    return nativeMessagePortClose.$call(this);
+  },
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
+
 let resourceLimits = {};
 
 let workerData = _workerData;
 let threadId = _threadId;
+// node: main thread name is "", worker default is "WorkerThread" (trimmed).
+const threadName = isMainThread ? "" : normalizeWorkerName(_threadName);
 function receiveMessageOnPort(port: MessagePort) {
   let res = _receiveMessageOnPort(port);
   if (!res) return undefined;
@@ -226,6 +268,8 @@ function moveMessagePortToContext() {
 class Worker extends EventEmitter {
   #worker: WebWorker;
   #performance;
+  #name: string;
+  #exited = false;
 
   // this is used by terminate();
   // either is the exit code if exited, a promise resolving to the exit code, or undefined if we haven't sent .terminate() yet
@@ -234,6 +278,8 @@ class Worker extends EventEmitter {
 
   constructor(filename: string, options: NodeWorkerOptions = {}) {
     super();
+
+    this.#name = normalizeWorkerName(options?.name);
 
     const builtinsGeneratorHatesEval = "ev" + "a" + "l"[0];
     if (options && builtinsGeneratorHatesEval in options) {
@@ -274,6 +320,10 @@ class Worker extends EventEmitter {
 
   get threadId() {
     return this.#worker.threadId;
+  }
+
+  get threadName() {
+    return this.#exited ? null : this.#name;
   }
 
   ref() {
@@ -350,6 +400,7 @@ class Worker extends EventEmitter {
   }
 
   #onClose(e) {
+    this.#exited = true;
     this.#onExitPromise = e.code;
     this.emit("exit", e.code);
   }
@@ -423,4 +474,5 @@ export default {
   receiveMessageOnPort,
   SHARE_ENV,
   threadId,
+  threadName,
 };
