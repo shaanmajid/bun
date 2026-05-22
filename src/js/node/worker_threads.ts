@@ -440,6 +440,9 @@ class Worker extends EventEmitter {
       },
       { once: true },
     );
+    // Keep the event loop alive until termination completes so the returned
+    // promise still resolves even if the worker was unref()'ed.
+    this.#worker.ref();
     this.#worker.terminate();
 
     return (this.#onExitPromise = promise);
