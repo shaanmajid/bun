@@ -77,7 +77,7 @@ test("all worker_threads module properties are present", () => {
 });
 
 test("all worker_threads worker instance properties are present", async () => {
-  const worker = new Worker(new URL("./worker.js", import.meta.url).href);
+  const worker = new Worker(new URL("./worker.js", import.meta.url));
   expect(worker).toHaveProperty("threadId");
   expect(worker).toHaveProperty("ref");
   expect(worker).toHaveProperty("unref");
@@ -133,11 +133,11 @@ test("all worker_threads worker instance properties are present", async () => {
 });
 
 test("threadId module and worker property is consistent", async () => {
-  const worker1 = new Worker(new URL("./worker-thread-id.ts", import.meta.url).href);
+  const worker1 = new Worker(new URL("./worker-thread-id.ts", import.meta.url));
   expect(threadId).toBe(0);
   expect(worker1.threadId).toBeGreaterThan(0);
   expect(() => worker1.postMessage({ workerId: worker1.threadId })).not.toThrow();
-  const worker2 = new Worker(new URL("./worker-thread-id.ts", import.meta.url).href);
+  const worker2 = new Worker(new URL("./worker-thread-id.ts", import.meta.url));
   expect(worker2.threadId).toBeGreaterThan(worker1.threadId);
   expect(() => worker2.postMessage({ workerId: worker2.threadId })).not.toThrow();
   await worker1.terminate();
@@ -146,7 +146,7 @@ test("threadId module and worker property is consistent", async () => {
 
 test("receiveMessageOnPort works across threads", async () => {
   const { port1, port2 } = new MessageChannel();
-  const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
+  const worker = new Worker(new URL("./worker.js", import.meta.url), {
     workerData: port2,
     transferList: [port2],
   });
@@ -194,7 +194,7 @@ test("receiveMessageOnPort works as FIFO", () => {
 }, 9999999);
 
 test("you can override globalThis.postMessage", async () => {
-  const worker = new Worker(new URL("./worker-override-postMessage.js", import.meta.url).href);
+  const worker = new Worker(new URL("./worker-override-postMessage.js", import.meta.url));
   const message = await new Promise(resolve => {
     worker.on("message", resolve);
     worker.postMessage("Hello from worker!");

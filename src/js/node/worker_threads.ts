@@ -433,22 +433,21 @@ class Worker extends EventEmitter {
   constructor(filename: string, options: NodeWorkerOptions = {}) {
     super();
 
-    this.#name = normalizeWorkerName(options?.name);
+    // The `= {}` default only covers undefined; normalize null too so the
+    // option accesses below don't throw on `new Worker(file, null)`.
+    options ??= {};
+
+    this.#name = normalizeWorkerName(options.name);
 
     const builtinsGeneratorHatesEval = "ev" + "a" + "l"[0];
-    if (options && builtinsGeneratorHatesEval in options) {
-      if (options[builtinsGeneratorHatesEval]) {
-        // TODO: consider doing this step in native code and letting the Blob be cleaned up by the
-        // C++ Worker object's destructor
-        const blob = new Blob([filename], { type: "" });
-        this.#urlToRevoke = filename = URL.createObjectURL(blob);
-      } else {
-        // if options.eval = false, allow the constructor below to fail, if
-        // we convert the code to a blob, it will succeed.
-        this.#urlToRevoke = filename;
-      }
+    if (options[builtinsGeneratorHatesEval]) {
+      // TODO: consider doing this step in native code and letting the Blob be cleaned up by the
+      // C++ Worker object's destructor
+      const blob = new Blob([filename], { type: "" });
+      this.#urlToRevoke = filename = URL.createObjectURL(blob);
     } else {
-      // node validates the worker path when not running eval'd code.
+      // node validates the worker path when not running eval'd code (eval:false
+      // is equivalent to omitting eval).
       filename = validateWorkerFilename(filename);
     }
 
