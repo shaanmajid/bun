@@ -2622,6 +2622,7 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
     WalkerState state = StateUnknown;
     JSValue inValue = in;
     auto scope = DECLARE_THROW_SCOPE(vm);
+    auto uncloneableMarker = Identifier::fromUid(vm.symbolRegistry().symbolForKey("nodejs.worker_threads.uncloneable"_s));
     while (1) {
         switch (state) {
         arrayStartState:
@@ -2835,6 +2836,16 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
 
         stateUnknown:
         case StateUnknown: {
+            if (inValue.isObject()) {
+                JSObject* uncloneableObj = asObject(inValue);
+                if (!uncloneableObj->inherits<JSArrayBuffer>() && !uncloneableObj->inherits<JSArrayBufferView>()
+                    && uncloneableObj->structure()->hasNonEnumerableProperties()) {
+                    bool marked = uncloneableObj->hasOwnProperty(m_lexicalGlobalObject, uncloneableMarker);
+                    RETURN_IF_EXCEPTION(scope, SerializationReturnCode::ExistingExceptionError);
+                    if (marked)
+                        return SerializationReturnCode::DataCloneError;
+                }
+            }
             auto terminalCode = SerializationReturnCode::SuccessfullyCompleted;
             auto dumped = dumpIfTerminal(inValue, terminalCode);
             RETURN_IF_EXCEPTION(scope, SerializationReturnCode::ExistingExceptionError);
@@ -6195,8 +6206,14 @@ ExceptionOr<Ref<SerializedScriptValue>> SerializedScriptValue::create(JSGlobalOb
 #if ENABLE(WEB_CODECS)
     Vector<Ref<WebCodecsVideoFrame>> transferredVideoFrames;
 #endif
+    auto untransferableMarker = Identifier::fromUid(vm.symbolRegistry().symbolForKey("nodejs.worker_threads.untransferable"_s));
     HashSet<JSC::JSObject*> uniqueTransferables;
     for (auto& transferable : transferList) {
+        if (transferable->hasOwnProperty(&lexicalGlobalObject, untransferableMarker)) {
+            RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
+            return Exception { DataCloneError, "Cannot transfer object marked as untransferable"_s };
+        }
+        RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
         if (!uniqueTransferables.add(transferable.get()).isNewEntry) {
             if (toPossiblySharedArrayBuffer(vm, transferable.get())) {
                 return Exception { DataCloneError, "Transfer list contains duplicate ArrayBuffer"_s };

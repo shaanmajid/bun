@@ -65,10 +65,16 @@ test("all worker_threads module properties are present", () => {
   expect(MessagePort).toBeDefined();
   expect(Worker).toBeDefined();
 
-  expect(() => {
-    // @ts-expect-error no args
-    wt.markAsUntransferable();
-  }).toThrow("not yet implemented");
+  // markAsUntransferable / isMarkedAsUntransferable / markAsUncloneable are implemented.
+  expect(wt.markAsUntransferable).toBeFunction();
+  expect(wt.isMarkedAsUntransferable).toBeFunction();
+  expect(wt.markAsUncloneable).toBeFunction();
+  {
+    const ab = new ArrayBuffer(8);
+    expect(wt.isMarkedAsUntransferable(ab)).toBe(false);
+    wt.markAsUntransferable(ab);
+    expect(wt.isMarkedAsUntransferable(ab)).toBe(true);
+  }
 
   expect(() => {
     const { port1 } = new MessageChannel();
