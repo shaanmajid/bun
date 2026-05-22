@@ -74,15 +74,6 @@ unsafe extern "C" {
     fn highway_xxhash64_digest(state: *const u8) -> u64;
 }
 
-// NOTE: every public wrapper below is `#[inline(always)]`. They are thin
-// ptr/len shims around the `extern "C"` highway_* dispatch stubs; inlining
-// them puts the FFI call directly at the hot lexer/printer call site so that
-// (a) the Rust-side frame disappears unconditionally, and (b) cross-language
-// LTO (`--profile=btg`, crossLangLto=true) can fold the C dispatch shim
-// straight into the caller. Without this the profile shows the C shim as a
-// distinct hot leaf (e.g. `highway_index_of_newline_or_non_ascii` self-samples
-// in lint/create-vue benches).
-
 /// Count frequencies of [a-zA-Z0-9_$] characters in a string
 /// Updates the provided frequency array with counts (adds delta for each occurrence)
 #[inline(always)]
@@ -211,10 +202,6 @@ pub fn contains_newline_or_non_ascii_or_quote(text: &[u8]) -> bool {
     unsafe { highway_contains_newline_or_non_ascii_or_quote(text.as_ptr(), text.len()) }
 }
 
-/// Finds the first character that needs escaping in a JavaScript string
-/// Looks for characters above ASCII (> 127), control characters (< 0x20),
-/// backslash characters (`\`), the quote character itself, and for backtick
-/// strings also the dollar sign (`$`)
 #[inline(always)]
 pub fn index_of_needs_escape_for_javascript_string(slice: &[u8], quote_char: u8) -> Option<u32> {
     if slice.is_empty() {
@@ -392,13 +379,6 @@ pub fn fill_with_skip_mask(mask: [u8; 4], output: &mut [u8], input: &[u8], skip_
     }
 }
 
-/// In-place variant of [`fill_with_skip_mask`] for `output == input`.
-///
-/// The Zig caller (`Mask.fill`) routinely passes the same buffer for both;
-/// the safe wrapper above can't express that without violating `&mut`/`&`
-/// aliasing. The C++ kernel reads-before-writes per lane (it's `dst[i] =
-/// src[i] ^ mask[i&3]`), so feeding it `src == dst` is sound — that's exactly
-/// what the Zig build does.
 #[inline(always)]
 pub fn fill_with_skip_mask_inplace(mask: [u8; 4], buf: &mut [u8], skip_mask: bool) {
     if buf.is_empty() {
@@ -420,12 +400,6 @@ pub fn fill_with_skip_mask_inplace(mask: [u8; 4], buf: &mut [u8], skip_mask: boo
     }
 }
 
-/// Useful for single-line JavaScript comments.
-/// Scans for:
-/// - `\n`, `\r`
-/// - Non-ASCII characters (which implicitly include `\n`, `\r`)
-/// - `#`
-/// - `@`
 #[inline(always)]
 pub fn index_of_newline_or_non_ascii_or_hash_or_at(haystack: &[u8]) -> Option<usize> {
     if haystack.is_empty() {

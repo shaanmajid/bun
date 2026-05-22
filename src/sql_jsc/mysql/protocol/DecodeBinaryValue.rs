@@ -339,10 +339,6 @@ pub fn decode_binary_value<Context: ReaderContext>(
                 return Ok(SQLDataCell::raw(Some(&data)));
             }
             let string_data = reader.encode_len_string()?;
-            // Only treat as binary if character_set indicates the binary pseudo-charset.
-            // The BINARY flag alone is insufficient because VARCHAR/CHAR columns
-            // with _bin collations (e.g., utf8mb4_bin) also have the BINARY flag set,
-            // but should return strings, not buffers.
             if binary && character_set == BINARY_CHARSET {
                 return Ok(SQLDataCell::raw(Some(&string_data)));
             }

@@ -114,10 +114,6 @@ pub(crate) struct AnchorAlias {
 
 impl Default for AnchorAlias {
     fn default() -> Self {
-        // PORT NOTE: `HashMap::get_or_put` requires `V: Default` to fill the
-        // freshly-inserted slot before the caller overwrites `*value_ptr`. Zig
-        // left it `undefined`; this is the closest legal Rust equivalent and is
-        // immediately overwritten by the caller (see `find_anchors_and_aliases`).
         AnchorAlias {
             anchored: false,
             used: false,
@@ -898,18 +894,6 @@ fn string_needs_quotes(str: &BunString) -> bool {
     false
 }
 
-/// Returns true when `str` would be parsed back as a number by `YAML.parse`.
-///
-/// This mirrors the rules in `src/interchange/yaml.zig`'s `tryResolveNumber`:
-/// - Optional leading sign, optionally followed by `.inf`/`.Inf`/`.INF` for signed infinity.
-/// - Otherwise a numeric mantissa: digits/`.`/`e`/`E`/hex letters, plus additional `+`/`-`
-///   (the parser accepts any number of `+` after the leading sign as long as no `x` was
-///   seen, and at most one additional `-`).
-/// - `0x` / `0X` → hex digits; `0o` / `0O` → octal digits.
-/// - Additionally, `wtf.parseDouble` is a prefix parser, so a leading numeric prefix is
-///   enough for `YAML.parse` to resolve a number — e.g. `"1+5"` round-trips to `1`.
-///   We err on the side of quoting when the parser's scanner would accept the full token
-///   as `valid`.
 fn string_is_number(str: &BunString) -> bool {
     let len = str.length();
     if len == 0 {
@@ -1016,10 +1000,6 @@ fn string_is_number(str: &BunString) -> bool {
     true
 }
 
-/// True if the three chars after position `i` (which is a `.`) spell "inf", "Inf",
-/// or "INF" — the suffix the YAML parser accepts after a signed `.` to mean
-/// +/- infinity. Over-matches `+.infX` etc., which is harmless for the quoting
-/// decision.
 fn is_inf_suffix(str: &BunString, i: usize) -> bool {
     if i + 4 > str.length() {
         return false;

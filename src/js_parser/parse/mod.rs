@@ -82,11 +82,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         // PORT NOTE: reshaped for borrowck — `errors` is reborrowed via as_deref_mut
         // for each call site instead of Zig's single pointer pass-through.
 
-        // There is no formal spec for "__PURE__" comments but from reverse-
-        // engineering, it looks like they apply to the next CallExpression or
-        // NewExpression. So in "/* @__PURE__ */ a().b() + c()" the comment applies
-        // to the expression "a().b()".
-
         if had_pure_comment_before && level.lt(Level::Call) {
             self.parse_suffix(expr, Level::Call.sub(1), errors.as_deref_mut(), flags)?;
             match &mut expr.data {
@@ -152,13 +147,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
             p.lexer.next()?;
             extends = Some(p.parse_expr(Level::New)?);
 
-            // TypeScript's type argument parser inside expressions backtracks if the
-            // first token after the end of the type parameter list is "{", so the
-            // parsed expression above will have backtracked if there are any type
-            // arguments. This means we have to re-parse for any type arguments here.
-            // This seems kind of wasteful to me but it's what the official compiler
-            // does and it probably doesn't have that high of a performance overhead
-            // because "extends" clauses aren't that frequent, so it should be ok.
             if Self::IS_TYPESCRIPT_ENABLED {
                 let _ = p.skip_type_script_type_arguments::<false>()?; // isInsideJSXElement
             }
@@ -421,13 +409,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         let mut type_colon_range = bun_ast::Range::default();
         let mut comma_after_spread: Option<bun_ast::Loc> = None;
 
-        // Push a scope assuming this is an arrow function. It may not be, in which
-        // case we'll need to roll this change back. This has to be done ahead of
-        // parsing the arguments instead of later on when we hit the "=>" token and
-        // we know it's an arrow function because the arguments may have default
-        // values that introduce new scopes and declare new symbols. If this is an
-        // arrow function, then those new scopes will need to be parented under the
-        // scope of the arrow function itself.
         let scope_index = p.push_scope_for_parse_pass(js_ast::scope::Kind::FunctionArgs, loc)?;
 
         // Allow "in" inside parentheses
@@ -547,11 +528,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                 });
             }
 
-            // Avoid parsing TypeScript code like "a ? (1 + 2) : (3 + 4)" as an arrow
-            // function. The ":" after the ")" may be a return type annotation, so we
-            // attempt to convert the expressions to bindings first before deciding
-            // whether this is an arrow function, and only pick an arrow function if
-            // there were no conversion errors.
             if p.lexer.token == T::TEqualsGreaterThan
                 || (Self::IS_TYPESCRIPT_ENABLED
                     && invalid_log.is_empty()
@@ -676,10 +652,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
             let name_text = p.lexer.identifier;
             p.lexer.expect(T::TIdentifier)?;
 
-            // We must return here
-            // or the lexer will crash loop!
-            // example:
-            // export class {}
             if !is_identifier {
                 return Err(err!("SyntaxError"));
             }
@@ -1344,14 +1316,7 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         }
 
         if !p.lexer.has_newline_before
-            && (
-                // Import Assertions are deprecated.
-                // Import Attributes are the new way to do this.
-                // But some code may still use "assert"
-                // We support both and treat them identically.
-                // Once Prettier & TypeScript support import attributes, we will add runtime support
-                p.lexer.is_contextual_keyword(b"assert") || p.lexer.token == T::TWith
-            )
+            && (p.lexer.is_contextual_keyword(b"assert") || p.lexer.token == T::TWith)
         {
             p.lexer.next()?;
             p.lexer.expect(T::TOpenBrace)?;

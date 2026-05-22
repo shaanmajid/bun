@@ -146,10 +146,6 @@ impl Parser<'_> {
                 merged_len -= 1;
             }
         }
-        // PORT NOTE: reshaped for borrowck — Zig passes self.buffer.items directly into a
-        // &self method; Rust take()s the Vec out so process_inline_content (and any recursive
-        // call via process_link) gets a fresh self.buffer to scribble on without aliasing.
-        // TODO(port): verify recursive calls (via process_link) do not need the parent buffer.
         let merged = core::mem::take(&mut self.buffer);
         let ret = self.process_inline_content(&merged[..merged_len], block_lines[0].beg);
         self.buffer = merged;

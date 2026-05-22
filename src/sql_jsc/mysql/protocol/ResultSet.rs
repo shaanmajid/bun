@@ -269,10 +269,6 @@ impl<'a> Row<'a> {
                 }
             }
             _ => {
-                // Only treat as binary if character_set indicates the binary pseudo-charset.
-                // The BINARY flag alone is insufficient because VARCHAR/CHAR columns
-                // with _bin collations (e.g., utf8mb4_bin) also have the BINARY flag set,
-                // but should return strings, not buffers.
                 if column.flags.contains(ColumnFlags::BINARY)
                     && column.character_set == decode_binary_value::BINARY_CHARSET
                 {
