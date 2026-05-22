@@ -19,6 +19,47 @@ function normalizeWorkerName(rawName) {
   return "WorkerThread";
 }
 
+const { isAbsolute: pathIsAbsolute } = require("node:path");
+
+// Mirror node's lib/internal/worker.js filename validation for non-eval
+// Workers: accept absolute paths, "./"/"../"-relative paths, and file: URL
+// objects; reject bare relative specifiers and string URLs.
+// https://github.com/nodejs/node/blob/main/lib/internal/worker.js
+function validateWorkerFilename(filename) {
+  if (filename instanceof URL) {
+    if (filename.protocol === "data:") return `${filename}`;
+    // throws ERR_INVALID_URL_SCHEME (TypeError) for non-file: URLs
+    return Bun.fileURLToPath(filename);
+  }
+  if (typeof filename !== "string") {
+    // Not a string or URL: defer to the native Worker constructor, which
+    // throws the canonical ERR_INVALID_ARG_TYPE with the exact node message.
+    return filename;
+  }
+  const sep = String.fromCharCode(92); // backslash, avoids builtin-bundler escape handling
+  if (
+    pathIsAbsolute(filename) ||
+    filename.startsWith("./") ||
+    filename.startsWith("../") ||
+    filename.startsWith("." + sep) ||
+    filename.startsWith(".." + sep)
+  ) {
+    return filename;
+  }
+  let message =
+    "The worker script or module filename must be an absolute path or a relative path starting with './' or '../'.";
+  if (filename.startsWith("file://")) {
+    message += " Wrap file:// URLs with `new URL`.";
+  }
+  if (filename.startsWith("data:text/javascript")) {
+    message += " Wrap data: URLs with `new URL`.";
+  }
+  message += ` Received "${filename}"`;
+  const err = new TypeError(message);
+  err.code = "ERR_WORKER_PATH";
+  throw err;
+}
+
 const {
   MessageChannel,
   BroadcastChannel,
@@ -293,6 +334,9 @@ class Worker extends EventEmitter {
         // we convert the code to a blob, it will succeed.
         this.#urlToRevoke = filename;
       }
+    } else {
+      // node validates the worker path when not running eval'd code.
+      filename = validateWorkerFilename(filename);
     }
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
