@@ -77,7 +77,7 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
         // A port may not be posted through itself or its own entangled peer.
         for (auto& port : ports) {
             if (port->pipe() == m_pipe.ptr())
-                return Exception { DataCloneError };
+                return Exception { DataCloneError, "Transfer list contains source port"_s };
         }
         auto disentangled = MessagePort::disentanglePorts(WTF::move(ports));
         if (disentangled.hasException())

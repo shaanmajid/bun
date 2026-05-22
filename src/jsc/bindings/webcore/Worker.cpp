@@ -44,6 +44,7 @@
 #include "BunWorkerGlobalScope.h"
 #include "CloseEvent.h"
 #include "JSMessagePort.h"
+#include "MessagePortPipe.h"
 #include "JSBroadcastChannel.h"
 
 namespace WebCore {
@@ -659,6 +660,17 @@ JSC_DEFINE_HOST_FUNCTION(jsReceiveMessageOnPort, (JSGlobalObject * lexicalGlobal
     return Bun::throwError(lexicalGlobalObject, scope, Bun::ErrorCode::ERR_INVALID_ARG_TYPE, "The \"port\" argument must be a MessagePort instance"_s);
 }
 
+JSC_DEFINE_HOST_FUNCTION(jsMessagePortIsActive, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
+{
+    auto port = callFrame->argument(0);
+    if (auto* messagePort = dynamicDowncast<JSMessagePort>(port)) {
+        auto& wrapped = messagePort->wrapped();
+        bool active = (wrapped.isDetached() == false) && wrapped.pipe()->isOtherSideOpen(wrapped.side());
+        return JSC::JSValue::encode(jsBoolean(active));
+    }
+    return JSC::JSValue::encode(jsBoolean(false));
+}
+
 JSValue createNodeWorkerThreadsBinding(Zig::GlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
@@ -709,13 +721,14 @@ JSValue createNodeWorkerThreadsBinding(Zig::GlobalObject* globalObject)
     ASSERT(environmentData);
     globalObject->setNodeWorkerEnvironmentData(environmentData);
 
-    JSObject* array = constructEmptyArray(globalObject, nullptr, 5);
+    JSObject* array = constructEmptyArray(globalObject, nullptr, 6);
     RETURN_IF_EXCEPTION(scope, {});
     array->putDirectIndex(globalObject, 0, workerData);
     array->putDirectIndex(globalObject, 1, threadId);
     array->putDirectIndex(globalObject, 2, JSFunction::create(vm, globalObject, 1, "receiveMessageOnPort"_s, jsReceiveMessageOnPort, ImplementationVisibility::Public, NoIntrinsic));
     array->putDirectIndex(globalObject, 3, environmentData);
     array->putDirectIndex(globalObject, 4, threadName);
+    array->putDirectIndex(globalObject, 5, JSFunction::create(vm, globalObject, 1, "isMessagePortActive"_s, jsMessagePortIsActive, ImplementationVisibility::Public, NoIntrinsic));
     return array;
 }
 

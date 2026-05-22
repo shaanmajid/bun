@@ -80,12 +80,14 @@ const {
   2: _receiveMessageOnPort,
   3: environmentData,
   4: _threadName,
+  5: _isMessagePortActive,
 } = $cpp("Worker.cpp", "createNodeWorkerThreadsBinding") as [
   unknown,
   number,
   (port: unknown) => unknown,
   Map<unknown, unknown>,
   string,
+  (port: unknown) => boolean,
 ];
 
 type NodeWorkerOptions = import("node:worker_threads").WorkerOptions;
@@ -208,6 +210,18 @@ Object.defineProperty(MessagePort.prototype, "close", {
   },
   writable: true,
   enumerable: true,
+  configurable: true,
+});
+
+// node-style util.inspect output for MessagePort (shows whether the channel is
+// still active). Symbol-keyed so it does not appear in getOwnPropertyNames.
+const kInspectCustom = Symbol.for("nodejs.util.inspect.custom");
+Object.defineProperty(MessagePort.prototype, kInspectCustom, {
+  value: function (depth, options) {
+    return `MessagePort [EventTarget] { active: ${_isMessagePortActive(this)}, refed: ${this.hasRef()} }`;
+  },
+  writable: true,
+  enumerable: false,
   configurable: true,
 });
 

@@ -419,7 +419,7 @@ describe("error event", () => {
     );
     const [err] = await once(worker, "error");
     expect(err).toBeInstanceOf(Error);
-    expect(err.message).toMatch(/MessagePort \{.*\}/s);
+    expect(err.message).toMatch(/MessagePort \[EventTarget\] \{.*\}/s);
   });
 });
 
