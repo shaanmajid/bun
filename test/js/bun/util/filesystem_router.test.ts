@@ -432,10 +432,12 @@ it(".query works with dynamic routes, including params", () => {
 });
 
 it(".query works with percent-encoded query string", () => {
-  const { dir } = make(["search.tsx"]);
+  using dir = tempDir("fsr-percent-query", {
+    "search.tsx": "export default 1;",
+  });
 
   const router = new Bun.FileSystemRouter({
-    dir,
+    dir: String(dir),
     style: "nextjs",
     origin: "https://example.com",
   });
@@ -449,10 +451,12 @@ it(".query works with percent-encoded query string", () => {
 });
 
 it(".params works with percent-encoded dynamic segments", () => {
-  const { dir } = make(["posts/[id].tsx"]);
+  using dir = tempDir("fsr-percent-params", {
+    "posts/[id].tsx": "export default 1;",
+  });
 
   const router = new Bun.FileSystemRouter({
-    dir,
+    dir: String(dir),
     style: "nextjs",
     origin: "https://example.com",
   });
