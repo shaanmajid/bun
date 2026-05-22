@@ -2577,8 +2577,6 @@ pub mod formatter {
                             }
 
                             PercentTag::O | PercentTag::UpperO => {
-                                // TODO: for %o, Node applies max_depth=4/show_proxy/show_hidden.
-                                let _ = token;
                                 self.format::<ENABLE_ANSI_COLORS>(
                                     Tag::get(next_value, global)?,
                                     writer_,

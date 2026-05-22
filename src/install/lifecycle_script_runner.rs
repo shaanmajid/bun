@@ -837,8 +837,6 @@ impl<'a> LifecycleScriptSubprocess<'a> {
                     if self.manager().finished_installing.load(Ordering::Relaxed) {
                         scripts_node.complete_one();
                     } else {
-                        // TODO(port): diverges once the real `std.Progress` port lands
-                        // (Zig's else arm did a detached-parent atomic RMW).
                         scripts_node.complete_one();
                     }
                 }
