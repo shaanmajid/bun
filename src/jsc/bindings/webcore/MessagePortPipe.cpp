@@ -253,6 +253,36 @@ void MessagePortPipe::close(uint8_t side)
         // outside the lock; they may hold the last ref to pipes whose
         // destructors also take locks.
     }
+
+    // Notify the entangled peer of the side that was explicitly closed so it
+    // can fire 'close' and release its event-loop ref (the channel is dead).
+    notifyPeerClosed(1 - side);
+}
+
+void MessagePortPipe::notifyPeerClosed(uint8_t peerSide)
+{
+    auto& s = m_sides[peerSide];
+    ScriptExecutionContextIdentifier ctxId = 0;
+    {
+        Locker locker { s.lock };
+        uint64_t st = s.state.load(std::memory_order_acquire);
+        if ((st & Closed) || !(st & Attached))
+            return;
+        ctxId = s.ctxId;
+    }
+    if (!ctxId)
+        return;
+    ScriptExecutionContext::postTaskTo(ctxId, [pipe = Ref { *this }, peerSide, ctxId](ScriptExecutionContext&) {
+        RefPtr<MessagePort> port;
+        {
+            Locker locker { pipe->m_sides[peerSide].lock };
+            if (pipe->m_sides[peerSide].ctxId != ctxId)
+                return;
+            port = pipe->m_sides[peerSide].port.get();
+        }
+        if (port)
+            port->peerClosed();
+    });
 }
 
 } // namespace WebCore

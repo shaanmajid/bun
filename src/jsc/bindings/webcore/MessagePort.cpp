@@ -129,6 +129,24 @@ void MessagePort::close()
     }
 }
 
+void MessagePort::peerClosed()
+{
+    if (m_isDetached)
+        return;
+    auto* context = scriptExecutionContext();
+    if (!context || !context->globalObject())
+        return;
+    Ref protectedThis { *this };
+    auto* globalObject = defaultGlobalObject(context->globalObject());
+    // The entangled peer closed: no further messages can arrive. Notify
+    // listeners with a 'close' event and release the event-loop ref held by
+    // jsRef()/onmessage so the loop can idle. Matches node's MessagePort.
+    if (Zig::GlobalObject::scriptExecutionStatus(globalObject, globalObject) == ScriptExecutionStatus::Running)
+        dispatchEvent(Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    if (m_hasRef)
+        jsUnref(globalObject);
+}
+
 TransferredMessagePort MessagePort::disentangle()
 {
     ASSERT(isEntangled());

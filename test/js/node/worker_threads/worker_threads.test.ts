@@ -71,8 +71,8 @@ test("all worker_threads module properties are present", () => {
   }).toThrow("not yet implemented");
 
   expect(() => {
-    // @ts-expect-error no args
-    wt.moveMessagePortToContext();
+    const { port1 } = new MessageChannel();
+    wt.moveMessagePortToContext(port1, {});
   }).toThrow("not yet implemented");
 });
 

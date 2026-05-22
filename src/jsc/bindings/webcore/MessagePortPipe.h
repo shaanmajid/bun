@@ -75,6 +75,7 @@ private:
     MessagePortPipe() = default;
 
     void scheduleDrain(uint8_t side, ScriptExecutionContextIdentifier);
+    void notifyPeerClosed(uint8_t peerSide);
     void drainAndDispatch(uint8_t side, ScriptExecutionContextIdentifier expectedCtx);
 
     struct Side {

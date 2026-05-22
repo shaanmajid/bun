@@ -179,12 +179,16 @@ const MessagePort = _MessagePort;
 // node: MessagePort.prototype.close(cb) registers cb as a one-time "close"
 // listener, then performs the native close.
 // https://github.com/nodejs/node/blob/main/lib/internal/worker/io.js
+// Tracks ports closed via JS close() so moveMessagePortToContext can report
+// ERR_CLOSED_MESSAGE_PORT for them, matching node.
+const closedMessagePorts = new WeakSet();
 const nativeMessagePortClose = MessagePort.prototype.close;
 Object.defineProperty(MessagePort.prototype, "close", {
   value: function close(cb) {
     if (typeof cb === "function") {
       this.once("close", cb);
     }
+    closedMessagePorts.add(this);
     // Bun's native close() does not emit a "close" event. Dispatch it here,
     // synchronously while the port is still attached, so registered listeners
     // and the optional callback run — matching node's MessagePort close.
@@ -302,7 +306,14 @@ function markAsUntransferable() {
   throwNotImplemented("worker_threads.markAsUntransferable");
 }
 
-function moveMessagePortToContext() {
+function moveMessagePortToContext(port, context) {
+  if (port instanceof MessagePort) {
+    if (closedMessagePorts.has(port)) {
+      throw $ERR_CLOSED_MESSAGE_PORT("Cannot send data on closed MessagePort");
+    }
+  } else {
+    throw $ERR_INVALID_ARG_TYPE("port", "MessagePort", port);
+  }
   throwNotImplemented("worker_threads.moveMessagePortToContext");
 }
 
