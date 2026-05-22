@@ -1,8 +1,8 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { stripLongComments, planEdits, listTrackedRsFiles } from "../../scripts/strip-long-rs-comments";
+import { listTrackedRsFiles, planEdits, stripLongComments } from "../../scripts/strip-long-rs-comments";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 
