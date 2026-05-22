@@ -833,10 +833,11 @@ impl<'a> LifecycleScriptSubprocess<'a> {
                 {
                     // .monotonic is okay because because this value is only used by hoisted
                     // installs, which only use this type on the main thread.
-                    #[allow(clippy::if_same_then_else)]
                     if self.manager().finished_installing.load(Ordering::Relaxed) {
                         scripts_node.complete_one();
                     } else {
+                        // Zig's else arm did a detached-parent atomic RMW; the stub
+                        // `bun_progress::Node` collapses that to `complete_one()` for now.
                         scripts_node.complete_one();
                     }
                 }
