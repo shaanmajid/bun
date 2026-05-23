@@ -35,11 +35,16 @@ const PROTECTED_LINE: RegExp[] = [
 // `clippy::undocumented_unsafe_blocks` is `deny` workspace-wide (Cargo.toml)
 // and accepts any comment containing /safety:/i immediately before `unsafe`.
 // The tree uses many header variants — `// SAFETY:`, `// SAFETY (invariant):`,
-// `// SAFETY CONTRACT:`, `/// # Safety`, `/// ## Safety` — so we conservatively
-// keep any block that mentions SAFETY/Safety as a word. Over-preserving a few
-// prose blocks that merely reference the pattern is preferable to a clippy
-// deny-error.
-const PROTECTED_BLOCK: RegExp[] = [/\bSAFETY\b/, /^\/\/\/\s*#+\s*Safety\b/];
+// `// SAFETY CONTRACT:`, `/// # Safety`, `/// ## Safety` — so we keep any
+// block that mentions SAFETY in caps, opens a line with a `Safety:`-style
+// marker in any case, or carries a `/// # Safety` doc heading. Over-preserving
+// a few prose blocks that merely reference the pattern is preferable to a
+// clippy deny-error.
+const PROTECTED_BLOCK: RegExp[] = [
+  /\bSAFETY\b/, // `// SAFETY: ...`, `// SAFETY CONTRACT: ...`, any all-caps mention
+  /^\/\/[/!]*\s*safety\s*:/i, // `// Safety: ...` / `// safety: ...` — clippy matches case-insensitively
+  /^\/\/\/\s*#+\s*Safety\b/, // `/// # Safety` doc headings
+];
 
 // Hot-path helpers avoid .trim()/.trimStart() allocation — debug-build JS is
 // slow enough that scanning ~3M lines with per-line temp strings takes 30s+.

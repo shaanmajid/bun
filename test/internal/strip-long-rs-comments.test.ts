@@ -106,6 +106,12 @@ test("stripLongComments: SAFETY blocks are kept in full", () => {
     "/// Extremely valid.",
     "pub unsafe fn external(p: *const u8) {}",
     "",
+    "// Safety: clippy matches the marker case-insensitively, so a mixed-case",
+    "// justification is load-bearing too.",
+    "// It continues onto a third line,",
+    "// and a fourth line.",
+    "unsafe { do_other_thing() };",
+    "",
   ].join("\n");
   expect(stripLongComments(src)).toBe(src);
 });
@@ -141,8 +147,10 @@ test("tree is clean: no .rs file has a strippable >3-line comment block", async 
   // `//` comment. Operates on the whole source at once so the per-line work is
   // done by the native regex engine instead of the debug-build JS interpreter.
   const blockRe = /(?:^[ \t]*\/\/[^\n]*\n){4,}/gm;
-  // Fast-path mirrors PROTECTED_BLOCK in the script.
+  // Fast-path mirrors PROTECTED_BLOCK in the script (two regexes so the
+  // `Safety:` marker alternative can be case-insensitive on its own).
   const protectedBlockRe = /\bSAFETY\b|^[ \t]*\/\/\/[ \t]*#+[ \t]*Safety\b/m;
+  const safetyMarkerRe = /^[ \t]*\/\/[/!]*[ \t]*safety[ \t]*:/im;
 
   const offenders: string[] = [];
   for (const rel of files) {
@@ -158,7 +166,7 @@ test("tree is clean: no .rs file has a strippable >3-line comment block", async 
     let m: RegExpExecArray | null;
     while ((m = blockRe.exec(src))) {
       if (m.index === fc) continue; // top-of-file header — allowed
-      if (protectedBlockRe.test(m[0])) continue; // SAFETY / # Safety — allowed
+      if (protectedBlockRe.test(m[0]) || safetyMarkerRe.test(m[0])) continue; // SAFETY / Safety: / # Safety — allowed
       // Defer to the real planner for anything else (HOST_EXPORT markers etc).
       const edits = planEdits(src.split("\n"), 4);
       if (edits.length === 0) break;
