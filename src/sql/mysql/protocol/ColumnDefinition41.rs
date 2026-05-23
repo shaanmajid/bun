@@ -99,8 +99,9 @@ impl ColumnDefinition41 {
             BStr::new(self.schema.slice())
         );
 
-        // `name` and `table` are surfaced to JS via to_js() when the query's final
-        // OK/EOF packet arrives, which may be many on_data() calls after decode.
+        // `name` and `table` are surfaced to JS by `JSMySQLQuery::build_statement_js`
+        // when the query's final OK/EOF packet arrives, which may be many on_data()
+        // calls after decode.
         // The reader returns `Data::Temporary` slices into the socket read buffer
         // which will have been overwritten or realloc'd by then, so own a copy
         // now. The other string fields are never read post-decode.
