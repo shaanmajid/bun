@@ -271,14 +271,19 @@ impl JSMySQLQuery {
     /// Build the `{ string, columns: [{ name, type, table, length, flags }, ...] }`
     /// object exposed as `result.statement` / `result.columns` in JS.
     ///
-    /// The object is built once per statement and held via a Strong reference,
-    /// so re-executions of a prepared statement reuse it instead of
-    /// re-allocating per query (test/regression/issue/28632). The cache is
+    /// For server-prepared statements (`statement_id > 0`) the object is built
+    /// once and held via a Strong reference, so re-executions reuse it instead
+    /// of re-allocating per query (test/regression/issue/28632). The cache is
     /// invalidated when a re-decoded column definition actually changes (see
     /// `ColumnDefinition41::decode` / MySQLConnection), and it is bypassed for
     /// result sets that carried no column definitions of their own
     /// (`columns_received != columns.len()`, e.g. the trailing OK of a CALL) so
     /// they report an empty column list instead of a previous result set's.
+    ///
+    /// Text-protocol (one-shot) statements are never cached: they can't be
+    /// re-executed, and pinning the metadata via a Strong reference would keep
+    /// large `.unsafe()/.simple()` query strings alive until the transient
+    /// statement is finalized (test/js/sql/sql-mysql-query-string-leak.test.ts).
     fn build_statement_js(&self, global_object: &JSGlobalObject) -> JsResult<JSValue> {
         use crate::jsc::bun_string_jsc;
         self.query.with_mut(|q| {
@@ -286,8 +291,9 @@ impl JSMySQLQuery {
                 return Ok(JSValue::UNDEFINED);
             };
             let received = statement.columns_received as usize;
-            let columns_match_result_set = received == statement.columns.len();
-            if columns_match_result_set {
+            let use_cache =
+                statement.statement_id > 0 && received == statement.columns.len();
+            if use_cache {
                 if let Some(cached) = statement.cached_statement_js.get() {
                     return Ok(cached);
                 }
@@ -329,7 +335,7 @@ impl JSMySQLQuery {
                 bun_string_jsc::to_js(q.get_query_string(), global_object)?,
             );
             obj.put(global_object, b"columns", columns);
-            if columns_match_result_set {
+            if use_cache {
                 statement.cached_statement_js.set(global_object, obj);
             }
             Ok(obj)
