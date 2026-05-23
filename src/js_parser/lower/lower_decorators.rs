@@ -122,12 +122,6 @@ fn class_copy(c: &G::Class) -> G::Class {
     }
 }
 
-/// Whether a context-inferred name (`export default` → "default", object
-/// property keys, assignment targets) can be attached to a lowered anonymous
-/// class expression as its syntactic binding name. Class bodies are always
-/// strict mode code and the output may be a module, so reserved words
-/// ("default", "let", "await", …), `eval`/`arguments`, and non-identifier
-/// strings would turn `_class = class <name> {}` into a syntax error.
 #[inline]
 fn can_be_class_binding_name(name: &[u8]) -> bool {
     js_lexer::is_identifier(name)
