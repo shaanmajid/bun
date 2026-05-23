@@ -2377,11 +2377,16 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                             }
                         }
                     } else if !self.expr_can_be_removed_if_unused(&e.left) {
+                        // A side effect in the assignment target (e.g. `foo[fn()] = a`) could
+                        // change the replacement value, so don't reorder the substitution past it.
                         return Substitution::Failure(expr);
                     } else if js_ast::op::Code::binary_assign_target(e.op)
                         == js_ast::AssignTarget::Update
                         && !replacement_can_be_removed
                     {
+                        // Read-modify-write assignments read the target, so a replacement with
+                        // side effects can't be reordered past it either (`fn()` may change
+                        // `foo` in `foo += fn()`).
                         return Substitution::Failure(expr);
                     }
 
