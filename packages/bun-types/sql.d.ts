@@ -496,8 +496,8 @@ declare module "bun" {
       table?: number | string;
       /**
        * PostgreSQL: the attribute number of the column within its table
-       * (1-based), or `0` if the column is not a simple reference to a table
-       * column.
+       * (1-based), `0` if the column is not a simple reference to a table
+       * column, or negative for system columns (e.g. `ctid`, `xmin`).
        */
       number?: number;
       /**
