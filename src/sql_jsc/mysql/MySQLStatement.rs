@@ -1,6 +1,6 @@
 use core::cell::Cell;
 
-use crate::jsc::{JSGlobalObject, JSValue};
+use crate::jsc::{JSGlobalObject, JSValue, StrongOptional};
 use bun_collections::StringHashMap;
 
 use crate::mysql::protocol::Signature;
@@ -22,6 +22,13 @@ bun_core::declare_scope!(MySQLStatement, hidden);
 #[derive(bun_ptr::CellRefCounted)]
 pub struct MySQLStatement {
     pub cached_structure: CachedStructure,
+    /// Lazily-built `{ string, columns }` object exposed as `result.statement` /
+    /// `result.columns`. Built on the first resolve and reused for every
+    /// execution of this statement (same invalidation policy as
+    /// `cached_structure`: reset when the result-set column count changes), so
+    /// repeated executions don't re-allocate the per-column descriptors
+    /// (test/regression/issue/28632).
+    pub cached_statement_js: StrongOptional,
     // Private — intrusive refcount invariant; reach via `ref_()`/`deref()` or
     // [`Self::init_exact_refs`] at construction time.
     ref_count: Cell<u32>,
@@ -44,6 +51,7 @@ impl Default for MySQLStatement {
     fn default() -> Self {
         Self {
             cached_structure: CachedStructure::default(),
+            cached_statement_js: StrongOptional::empty(),
             ref_count: Cell::new(1),
             statement_id: 0,
             params: Vec::new(),

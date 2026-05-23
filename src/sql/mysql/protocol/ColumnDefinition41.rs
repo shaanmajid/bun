@@ -104,8 +104,16 @@ impl ColumnDefinition41 {
         // The reader returns `Data::Temporary` slices into the socket read buffer
         // which will have been overwritten or realloc'd by then, so own a copy
         // now. The other string fields are never read post-decode.
+        //
+        // Column definitions are re-decoded into the same slot on every
+        // COM_STMT_EXECUTE of a reused prepared statement, so skip the re-copy
+        // when the bytes are unchanged — otherwise the per-column alloc/free
+        // churn shows up as RSS growth under the ASAN quarantine, same as the
+        // `name_or_index` elision below (test/regression/issue/28632).
         let table = reader.encode_len_string()?;
-        self.table = Data::create(table.slice())?;
+        if self.table.slice() != table.slice() {
+            self.table = Data::create(table.slice())?;
+        }
         bun_core::scoped_log!(
             ColumnDefinition41,
             "table: {}",
@@ -120,7 +128,9 @@ impl ColumnDefinition41 {
         );
 
         let name = reader.encode_len_string()?;
-        self.name = Data::create(name.slice())?;
+        if self.name.slice() != name.slice() {
+            self.name = Data::create(name.slice())?;
+        }
         bun_core::scoped_log!(ColumnDefinition41, "name: {}", BStr::new(self.name.slice()));
 
         self.org_name = reader.encode_len_string()?;

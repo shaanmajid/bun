@@ -1182,7 +1182,12 @@ impl MySQLConnection {
                 };
                 statement.params_received += 1;
             } else if (statement.columns_received as usize) < statement.columns.len() {
-                statement.columns[statement.columns_received as usize].decode(&mut reader)?;
+                if statement.columns[statement.columns_received as usize].decode(&mut reader)? {
+                    // The slot's definition changed (e.g. a re-prepare after the
+                    // table was altered) — the cached `{ string, columns }` object
+                    // no longer describes these fields.
+                    statement.cached_statement_js.deinit();
+                }
                 statement.columns_received += 1;
             }
             // In CLIENT_DEPRECATE_EOF mode, there are no trailing EOF packets, so
@@ -1463,6 +1468,7 @@ impl MySQLConnection {
                         statement.columns = columns;
                         statement.columns_received = 0;
                         statement.cached_structure = Default::default();
+                        statement.cached_statement_js.deinit();
                         statement.fields_flags = Default::default();
                     }
                     statement
@@ -1477,6 +1483,7 @@ impl MySQLConnection {
                         .decode(&mut reader)?;
                     if changed {
                         statement.cached_structure = Default::default();
+                        statement.cached_statement_js.deinit();
                         statement.fields_flags = Default::default();
                         statement
                             .execution_flags

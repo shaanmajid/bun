@@ -270,12 +270,20 @@ impl JSMySQLQuery {
 
     /// Build the `{ string, columns: [{ name, type, table, length, flags }, ...] }`
     /// object exposed as `result.statement` / `result.columns` in JS.
+    ///
+    /// The object is built once per statement and held via a Strong reference
+    /// (same invalidation policy as `cached_structure`), so re-executions of a
+    /// prepared statement reuse it instead of re-allocating per query
+    /// (test/regression/issue/28632).
     fn build_statement_js(&self, global_object: &JSGlobalObject) -> JsResult<JSValue> {
         use crate::jsc::bun_string_jsc;
         self.query.with_mut(|q| {
             let Some(statement) = q.get_statement() else {
                 return Ok(JSValue::UNDEFINED);
             };
+            if let Some(cached) = statement.cached_statement_js.get() {
+                return Ok(cached);
+            }
             let received = statement.columns_received as usize;
             let columns = JSValue::create_empty_array(global_object, received)?;
             for (i, column) in statement.columns[..received].iter().enumerate() {
@@ -314,6 +322,7 @@ impl JSMySQLQuery {
                 bun_string_jsc::to_js(q.get_query_string(), global_object)?,
             );
             obj.put(global_object, b"columns", columns);
+            statement.cached_statement_js.set(global_object, obj);
             Ok(obj)
         })
     }

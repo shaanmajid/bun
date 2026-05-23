@@ -1,6 +1,6 @@
 use core::cell::Cell;
 
-use crate::jsc::{JSGlobalObject, JSValue, JsResult};
+use crate::jsc::{JSGlobalObject, JSValue, JsResult, StrongOptional};
 use bun_collections::StringHashMap;
 
 use crate::postgres::error_jsc::postgres_error_to_js;
@@ -21,6 +21,12 @@ bun_core::declare_scope!(Postgres, visible);
 #[derive(bun_ptr::CellRefCounted)]
 pub struct PostgresSQLStatement {
     pub cached_structure: PostgresCachedStructure,
+    /// Lazily-built `{ string, columns }` object exposed as `result.statement` /
+    /// `result.columns`. Built on the first resolve and reused for every
+    /// execution of this prepared statement; reset wherever `fields` is
+    /// cleared/replaced (simple-protocol multi-statement queries), so repeated
+    /// executions don't re-allocate the per-column descriptors.
+    pub cached_statement_js: StrongOptional,
     // Private — intrusive refcount invariant; reach via `ref_()`/`deref()` or
     // [`Self::init_exact_refs`] at construction time.
     ref_count: Cell<u32>,
@@ -39,6 +45,7 @@ impl Default for PostgresSQLStatement {
         // exists only to mirror the per-field `= ...` initializers.
         Self {
             cached_structure: PostgresCachedStructure::default(),
+            cached_statement_js: StrongOptional::empty(),
             ref_count: Cell::new(1),
             fields: Vec::new(),
             parameters: Box::default(),

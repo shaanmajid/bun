@@ -308,11 +308,19 @@ impl PostgresSQLQuery {
     /// object exposed as `result.statement` / `result.columns` in JS. Must be
     /// called before the next RowDescription overwrites `statement.fields` (see
     /// PostgresSQLConnection `RowDescription` handler).
+    ///
+    /// The object is built once per statement and held via a Strong reference
+    /// (same policy as `cached_structure`), so re-executions of a prepared
+    /// statement reuse it instead of re-allocating per query; it is invalidated
+    /// wherever `statement.fields` is cleared/replaced.
     fn build_statement_js(&self, global_object: &JSGlobalObject) -> JsResult<JSValue> {
         use crate::jsc::bun_string_jsc;
         let Some(statement) = self.statement_mut() else {
             return Ok(JSValue::UNDEFINED);
         };
+        if let Some(cached) = statement.cached_statement_js.get() {
+            return Ok(cached);
+        }
         let columns = JSValue::create_empty_array(global_object, statement.fields.len())?;
         for (i, field) in statement.fields.iter().enumerate() {
             let col = JSValue::create_empty_object(global_object, 4);
@@ -348,6 +356,7 @@ impl PostgresSQLQuery {
             bun_string_jsc::to_js(&self.query, global_object)?,
         );
         obj.put(global_object, b"columns", columns);
+        statement.cached_statement_js.set(global_object, obj);
         Ok(obj)
     }
 

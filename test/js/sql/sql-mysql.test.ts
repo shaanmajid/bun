@@ -194,6 +194,18 @@ if (isDockerEnabled()) {
               Bun.gc(true);
             }
           });
+
+          test("re-executing a prepared statement reuses the statement metadata object", async () => {
+            // The `{ string, columns }` object is cached on the prepared statement
+            // and reused across executions instead of being rebuilt per query, so
+            // repeated executions stay allocation-flat (test/regression/issue/28632).
+            await using db = new SQL({ ...getOptions(), max: 1 });
+            const r1 = await db`select ${"hello"} as msg, CAST(1 AS SIGNED) as id`;
+            const r2 = await db`select ${"hello"} as msg, CAST(1 AS SIGNED) as id`;
+            expect(r1.columns.map(c => c.name)).toEqual(["msg", "id"]);
+            expect(r2.statement).toBe(r1.statement);
+            expect(r2.columns).toBe(r1.columns);
+          });
         });
         describe("should work with more than the max inline capacity", () => {
           for (let size of [50, 60, 62, 64, 70, 100]) {

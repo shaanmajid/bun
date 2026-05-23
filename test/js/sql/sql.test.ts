@@ -3146,6 +3146,21 @@ if (isDockerEnabled()) {
         expect(result.statement.string).toBe("select $1 ::text as x");
       });
 
+      test("re-executing a prepared statement reuses the statement metadata object", async () => {
+        // postgres.js parity: `statement` is the shared prepared-statement
+        // descriptor, so repeated executions return the same object instead of
+        // rebuilding the column metadata for every query.
+        await using db = postgres({ ...options, max: 1 });
+        const r1 = await db`select ${1}::int4 as id, 'hi'::text as msg`;
+        const r2 = await db`select ${1}::int4 as id, 'hi'::text as msg`;
+        expect(r1.columns).toEqual([
+          { name: "id", type: 23, table: 0, number: 0 },
+          { name: "msg", type: 25, table: 0, number: 0 },
+        ]);
+        expect(r2.statement).toBe(r1.statement);
+        expect(r2.columns).toBe(r1.columns);
+      });
+
       test("columns and statement don't break Array iteration", async () => {
         const result = await sql`select 1 as x`;
         // .map() / iteration should not produce extra entries from metadata
