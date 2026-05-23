@@ -449,7 +449,15 @@ impl FileSink {
                 // freed when this fires, so those calls would be UAF.
                 // Leaking the slots is bounded — they are reclaimed
                 // wholesale with the VM heap.
+                //
+                // `signal.clear()` dodges the same class of UAF through
+                // the caller: `on_write` continues past `run_pending` and
+                // may call `signal.close()` (EndOfFile branch) or fall
+                // into `writer.end()` → `on_close` → `signal.close()`,
+                // which dispatches `FileSink__onClose` into the freed VM
+                // via `SinkSignal::close` if `signal.ptr` is still set.
                 (*this).pending.with_mut(|p| p.discard());
+                (*this).signal.with_mut(|s| s.clear());
                 // SAFETY: intentional leak — see comment above.
                 #[allow(clippy::mem_forget)]
                 {
