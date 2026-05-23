@@ -22,10 +22,10 @@ bun_core::declare_scope!(Postgres, visible);
 pub struct PostgresSQLStatement {
     pub cached_structure: PostgresCachedStructure,
     /// Lazily-built `{ string, columns }` object exposed as `result.statement` /
-    /// `result.columns`. Built on the first resolve and reused for every
-    /// execution of this prepared statement; reset wherever `fields` is
-    /// cleared/replaced (simple-protocol multi-statement queries), so repeated
-    /// executions don't re-allocate the per-column descriptors.
+    /// `result.columns`. Only populated for extended-protocol (prepared)
+    /// queries and reused across executions; reset wherever `fields` is
+    /// cleared or replaced, so repeated executions don't re-allocate the
+    /// per-column descriptors.
     pub cached_statement_js: StrongOptional,
     // Private — intrusive refcount invariant; reach via `ref_()`/`deref()` or
     // [`Self::init_exact_refs`] at construction time.

@@ -23,10 +23,11 @@ bun_core::declare_scope!(MySQLStatement, hidden);
 pub struct MySQLStatement {
     pub cached_structure: CachedStructure,
     /// Lazily-built `{ string, columns }` object exposed as `result.statement` /
-    /// `result.columns`. Built on the first resolve and reused for every
-    /// execution of this statement (same invalidation policy as
-    /// `cached_structure`: reset when the result-set column count changes), so
-    /// repeated executions don't re-allocate the per-column descriptors
+    /// `result.columns`. Only populated for server-prepared statements
+    /// (`statement_id > 0`) and reused across executions; reset when the
+    /// result-set column count changes or a re-decoded column definition
+    /// reports changed metadata (see `ColumnDefinition41::decode`), so repeated
+    /// executions don't re-allocate the per-column descriptors
     /// (test/regression/issue/28632).
     pub cached_statement_js: StrongOptional,
     // Private — intrusive refcount invariant; reach via `ref_()`/`deref()` or
