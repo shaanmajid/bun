@@ -206,6 +206,28 @@ if (isDockerEnabled()) {
             expect(r2.statement).toBe(r1.statement);
             expect(r2.columns).toBe(r1.columns);
           });
+
+          test("multi-statement simple() with equal column counts gets per-result-set columns", async () => {
+            // Consecutive result sets with the same column count re-decode into the
+            // same ColumnDefinition41 slots; the cached statement metadata must be
+            // invalidated when the definitions actually change so the second result
+            // set doesn't report the first result set's columns.
+            await using db = new SQL({ ...getOptions(), max: 1 });
+            const results = await db`select 1 as first_col; select 2 as second_col`.simple();
+            expect(results).toHaveLength(2);
+            expect(results[0].columns.map(c => c.name)).toEqual(["first_col"]);
+            expect(results[1].columns.map(c => c.name)).toEqual(["second_col"]);
+          });
+
+          test("multi-statement simple(): OK-only statement after SELECT does not inherit columns", async () => {
+            // An OK-only result set (no column definitions of its own) must not
+            // report the previous result set's cached column metadata.
+            await using db = new SQL({ ...getOptions(), max: 1 });
+            const results = await db`select 1 as only_col; set @bun_26809 := 1`.simple();
+            expect(results).toHaveLength(2);
+            expect(results[0].columns.map(c => c.name)).toEqual(["only_col"]);
+            expect(results[1].columns).toEqual([]);
+          });
         });
         describe("should work with more than the max inline capacity", () => {
           for (let size of [50, 60, 62, 64, 70, 100]) {
