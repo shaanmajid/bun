@@ -291,8 +291,7 @@ impl JSMySQLQuery {
                 return Ok(JSValue::UNDEFINED);
             };
             let received = statement.columns_received as usize;
-            let use_cache =
-                statement.statement_id > 0 && received == statement.columns.len();
+            let use_cache = statement.statement_id > 0 && received == statement.columns.len();
             if use_cache {
                 if let Some(cached) = statement.cached_statement_js.get() {
                     return Ok(cached);
