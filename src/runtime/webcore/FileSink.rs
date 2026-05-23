@@ -437,27 +437,25 @@ impl FileSink {
     unsafe fn run_pending(this: *mut FileSink) {
         // SAFETY: caller contract — `this` is live with write+dealloc provenance.
         unsafe {
-            let guard = FileSinkRef::new_ref(this);
+            let _guard = FileSinkRef::new_ref(this);
 
             (*this).run_pending_later.has.set(false);
 
             if (*this).js_vm().is_some_and(|vm| vm.is_shutting_down()) {
+                // Neutralize every JSC-handle-holding field so `_guard`
+                // dropping → `FileSink::deref` → `deinit` → field Drops
+                // do not call `Bun__StrongRef__delete`. On the Windows
+                // `Loop::shutdown` path the VM's `HandleSet` is already
+                // freed when this fires, so those calls would be UAF.
+                // Leaking the slots is bounded — they are reclaimed
+                // wholesale with the VM heap.
                 (*this).pending.with_mut(|p| p.discard());
-                // SAFETY: intentional leak — the JSC HandleSet backing the
-                // Strong's slot is already freed by the time this runs on
-                // Windows `Loop::shutdown`'s `uv_run`, so `Bun__StrongRef__delete`
-                // via `Optional::drop` would be UAF. The slot is reclaimed
-                // with the VM heap.
+                // SAFETY: intentional leak — see comment above.
                 #[allow(clippy::mem_forget)]
-                (*this).js_sink_ref.with_mut(|r| {
-                    core::mem::forget(core::mem::take(r));
-                });
-                // SAFETY: intentional leak — dropping `guard` calls
-                // `FileSink::deref`, which can trigger `deinit` → drop
-                // `readable_stream.held: Strong` → `Bun__StrongRef__delete`
-                // against the freed HandleSet.
-                #[allow(clippy::mem_forget)]
-                core::mem::forget(guard);
+                {
+                    core::mem::forget((*this).js_sink_ref.replace(Default::default()));
+                    core::mem::forget((*this).readable_stream.replace(Default::default()));
+                }
                 return;
             }
 
