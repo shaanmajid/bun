@@ -834,6 +834,22 @@ impl<'a> Lexer<'a> {
                     }
                     self.identifier = self.raw();
                     self.token = match self.identifier.len() {
+                        3 => {
+                            // TOML 1.0.0 float values: `inf` and `nan`. The
+                            // signed forms `+inf` / `-inf` / `+nan` / `-nan`
+                            // are handled by the existing `t_plus` / `t_minus`
+                            // arms in the parser, which consume a following
+                            // `t_numeric_literal`.
+                            if strings::eql_comptime_ignore_len(self.identifier, b"inf") {
+                                self.number = f64::INFINITY;
+                                T::t_numeric_literal
+                            } else if strings::eql_comptime_ignore_len(self.identifier, b"nan") {
+                                self.number = f64::NAN;
+                                T::t_numeric_literal
+                            } else {
+                                T::t_identifier
+                            }
+                        }
                         4 => {
                             if strings::eql_comptime_ignore_len(self.identifier, b"true") {
                                 T::t_true
