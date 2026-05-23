@@ -564,13 +564,6 @@ fn parse_nested_block<T>(
     });
 
     let start_position = parser.input.tokenizer.get_position();
-    // If a block at or before this position already failed to parse and was
-    // found to be unclosed at the end of input, this block lies inside that
-    // truncated suffix and extends to the end of input as well. Re-parsing it
-    // can only fail again, so skip straight to the end of input. Without this,
-    // backtracking callers (e.g. `Calc::parse` followed by `V::parse`, or the
-    // token-list color fallbacks) re-parse the unclosed suffix once per
-    // alternative per nesting level, which is exponential in the nesting depth.
     if let Some(unclosed) = parser.input.unclosed_block_at_eof {
         if start_position >= unclosed.start_position {
             parser.input.tokenizer.reset(&unclosed.eof_state);
@@ -3976,14 +3969,6 @@ pub struct ParserInput<'a> {
     pub tokenizer: Tokenizer<'a>,
     pub cached_token: Option<CachedToken>,
     pub nesting_depth: u32,
-    /// Set once a nested block fails to parse and the end of input is reached
-    /// without ever finding its closing token, i.e. the stylesheet is
-    /// truncated somewhere inside that block. Everything from
-    /// `start_position` to the end of input is inside the unclosed block, so
-    /// re-parsing any block in that range can only fail the same way again.
-    /// `parse_nested_block` uses this to fail such attempts immediately
-    /// instead of re-scanning (and re-recursing through) the truncated
-    /// suffix once per backtracking alternative per nesting level.
     unclosed_block_at_eof: Option<UnclosedBlockAtEof>,
 }
 

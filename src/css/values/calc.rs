@@ -645,12 +645,6 @@ impl<V: CalcValue> Calc<V> {
                 other => return Ok(other),
             },
             Err(e) => {
-                // A math function token can only be parsed by `Self::parse`.
-                // If that failed, none of the alternatives below can succeed
-                // either, so return the error rather than falling through:
-                // `V::parse` would re-enter the same nested block through
-                // `Calc::parse` again, which makes deeply nested invalid
-                // arguments exponentially slow to reject.
                 let start = input.state();
                 let is_math_function = matches!(
                     input.next(),

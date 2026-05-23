@@ -817,11 +817,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                 let decls = p.parse_and_declare_decls(js_ast::symbol::Kind::Constant, opts)?;
                 let decls_slice = bun_collections::RawSlice::new(decls.slice());
                 if opts.is_typescript_declare {
-                    // TypeScript does not allow "using" declarations in ambient
-                    // contexts ("declare using x", "declare namespace { using x }").
-                    // Their bindings are also never declared as symbols, so
-                    // require_initializers (which looks up the binding's symbol)
-                    // must not run here.
                     p.log().add_error(
                         Some(p.source),
                         token_range.loc,
