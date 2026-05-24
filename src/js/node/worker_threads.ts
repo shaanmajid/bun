@@ -769,4 +769,10 @@ export default {
   SHARE_ENV,
   threadId,
   threadName,
+  // node:inspector's minimal NodeWorker domain reports this worker's title
+  // ("[worker N] <name>") via NodeWorker.attachedToWorker. Exposed through a
+  // well-known symbol so inspector.ts can read it without a public export.
+  [Symbol.for("nodejs.worker_threads.inspectorTitle")]: isMainThread
+    ? undefined
+    : `[worker ${threadId}] ${threadName}`,
 };
