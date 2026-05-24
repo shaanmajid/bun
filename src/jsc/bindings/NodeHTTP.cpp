@@ -139,7 +139,6 @@ static void assignHeadersFromUWebSocketsForCall(uWS::HttpRequest* request, JSVal
     JSC::JSObject* headersObject = JSC::constructEmptyObject(globalObject, globalObject->objectPrototype(), JSFinalObject::defaultInlineCapacity);
     RETURN_IF_EXCEPTION(scope, void());
     JSC::JSArray* setCookiesHeaderArray = nullptr;
-    JSC::JSString* setCookiesHeaderString = nullptr;
     MarkedArgumentBuffer arrayValues;
     HTTPHeaderIdentifiers& identifiers = WebCore::clientData(vm)->httpHeaderIdentifiers();
 
@@ -147,6 +146,8 @@ static void assignHeadersFromUWebSocketsForCall(uWS::HttpRequest* request, JSVal
 
     for (auto it = request->begin(); it != request->end(); ++it) {
         auto pair = *it;
+        // The uWS parser preserves the original case of the header name in `pair.first`;
+        // `req.rawHeaders` keeps the wire case, `req.headers` is keyed lowercase.
         StringView nameView = StringView(std::span { reinterpret_cast<const Latin1Character*>(pair.first.data()), pair.first.length() });
         std::span<Latin1Character> data;
         auto value = String::createUninitialized(pair.second.length(), data);
@@ -158,7 +159,8 @@ static void assignHeadersFromUWebSocketsForCall(uWS::HttpRequest* request, JSVal
         JSString* jsValue = jsString(vm, value);
 
         Identifier nameIdentifier;
-        JSString* nameString = nullptr;
+        WTF::String originalCasedNameString = nameView.toString();
+        JSString* originalCasedNameJSString = jsString(vm, originalCasedNameString);
         // `findHTTPHeaderName` only writes `name` when it returns true, so the
         // SetCookie check must be gated on a successful lookup rather than on the
         // (otherwise indeterminate) `name` value. set-cookie is always a known
@@ -166,24 +168,20 @@ static void assignHeadersFromUWebSocketsForCall(uWS::HttpRequest* request, JSVal
         bool isSetCookie = false;
 
         if (WebCore::findHTTPHeaderName(nameView, name)) {
-            nameString = identifiers.stringFor(globalObject, name);
             nameIdentifier = identifiers.identifierFor(vm, name);
             isSetCookie = name == WebCore::HTTPHeaderName::SetCookie;
         } else {
-            WTF::String wtfString = nameView.toString();
-            nameString = jsString(vm, wtfString);
-            nameIdentifier = Identifier::fromString(vm, wtfString.convertToASCIILowercase());
+            nameIdentifier = Identifier::fromString(vm, originalCasedNameString.convertToASCIILowercase());
         }
 
         if (isSetCookie) {
             if (!setCookiesHeaderArray) {
                 setCookiesHeaderArray = constructEmptyArray(globalObject, nullptr);
                 RETURN_IF_EXCEPTION(scope, );
-                setCookiesHeaderString = nameString;
                 headersObject->putDirect(vm, nameIdentifier, setCookiesHeaderArray, 0);
                 RETURN_IF_EXCEPTION(scope, void());
             }
-            arrayValues.append(setCookiesHeaderString);
+            arrayValues.append(originalCasedNameJSString);
             arrayValues.append(jsValue);
             setCookiesHeaderArray->push(globalObject, jsValue);
             RETURN_IF_EXCEPTION(scope, void());
@@ -191,7 +189,7 @@ static void assignHeadersFromUWebSocketsForCall(uWS::HttpRequest* request, JSVal
         } else {
             headersObject->putDirectMayBeIndex(globalObject, nameIdentifier, jsValue);
             RETURN_IF_EXCEPTION(scope, void());
-            arrayValues.append(nameString);
+            arrayValues.append(originalCasedNameJSString);
             arrayValues.append(jsValue);
             RETURN_IF_EXCEPTION(scope, void());
         }
@@ -328,12 +326,14 @@ static EncodedJSValue assignHeadersFromUWebSockets(uWS::HttpRequest* request, JS
     JSC::JSArray* array = constructEmptyArray(globalObject, nullptr, size * 2);
     RETURN_IF_EXCEPTION(scope, {});
     JSC::JSArray* setCookiesHeaderArray = nullptr;
-    JSC::JSString* setCookiesHeaderString = nullptr;
 
     unsigned i = 0;
 
     for (auto it = request->begin(); it != request->end(); ++it) {
         auto pair = *it;
+        // The uWS parser preserves the original case of the header name in `pair.first`.
+        // `req.rawHeaders` is specified (Node docs) to preserve the on-the-wire case, while
+        // `req.headers` is keyed by lowercase name.
         StringView nameView = StringView(std::span { reinterpret_cast<const Latin1Character*>(pair.first.data()), pair.first.length() });
         std::span<Latin1Character> data;
         auto value = String::tryCreateUninitialized(pair.second.length(), data);
@@ -345,17 +345,15 @@ static EncodedJSValue assignHeadersFromUWebSockets(uWS::HttpRequest* request, JS
             memcpy(data.data(), pair.second.data(), pair.second.length());
 
         HTTPHeaderName name;
-        WTF::String nameString;
+        WTF::String originalCasedNameString = nameView.toString();
         WTF::String lowercasedNameString;
         bool isSetCookie = false;
 
         if (WebCore::findHTTPHeaderName(nameView, name)) {
-            nameString = WTF::httpHeaderNameStringImpl(name);
-            lowercasedNameString = nameString;
+            lowercasedNameString = WTF::httpHeaderNameStringImpl(name);
             isSetCookie = name == WebCore::HTTPHeaderName::SetCookie;
         } else {
-            nameString = nameView.toString();
-            lowercasedNameString = nameString.convertToASCIILowercase();
+            lowercasedNameString = originalCasedNameString.convertToASCIILowercase();
         }
 
         JSString* jsValue = jsString(vm, value);
@@ -364,18 +362,17 @@ static EncodedJSValue assignHeadersFromUWebSockets(uWS::HttpRequest* request, JS
             if (!setCookiesHeaderArray) {
                 setCookiesHeaderArray = constructEmptyArray(globalObject, nullptr);
                 RETURN_IF_EXCEPTION(scope, {});
-                setCookiesHeaderString = jsString(vm, nameString);
                 headersObject->putDirect(vm, Identifier::fromString(vm, lowercasedNameString), setCookiesHeaderArray, 0);
                 RETURN_IF_EXCEPTION(scope, {});
             }
-            array->putDirectIndex(globalObject, i++, setCookiesHeaderString);
+            array->putDirectIndex(globalObject, i++, jsString(vm, originalCasedNameString));
             array->putDirectIndex(globalObject, i++, jsValue);
             setCookiesHeaderArray->push(globalObject, jsValue);
             RETURN_IF_EXCEPTION(scope, {});
 
         } else {
             headersObject->putDirect(vm, Identifier::fromString(vm, lowercasedNameString), jsValue, 0);
-            array->putDirectIndex(globalObject, i++, jsString(vm, nameString));
+            array->putDirectIndex(globalObject, i++, jsString(vm, originalCasedNameString));
             array->putDirectIndex(globalObject, i++, jsValue);
             RETURN_IF_EXCEPTION(scope, {});
         }
