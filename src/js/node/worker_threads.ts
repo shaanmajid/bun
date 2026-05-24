@@ -107,6 +107,10 @@ function injectFakeEmitter(Class) {
     return event.error;
   }
 
+  function customEventHandler(event) {
+    return event.detail;
+  }
+
   const wrappedListener = Symbol("wrappedListener");
 
   function wrapped(run, listener) {
@@ -124,8 +128,12 @@ function injectFakeEmitter(Class) {
         return wrapped(errorEventHandler, listener);
       }
 
-      default: {
+      case "message": {
         return wrapped(messageEventHandler, listener);
+      }
+
+      default: {
+        return wrapped(customEventHandler, listener);
       }
     }
   }
@@ -158,7 +166,19 @@ function injectFakeEmitter(Class) {
   }
 
   function emit(event, ...args) {
-    this.dispatchEvent(new (EventClass(event))(event, ...args));
+    switch (event) {
+      case "error":
+      case "messageerror":
+      case "message":
+        this.dispatchEvent(new (EventClass(event))(event, ...args));
+        break;
+      default:
+        // node: a non-standard event emitted on a port surfaces to
+        // addEventListener listeners as a CustomEvent (detail = first arg) and
+        // to .on() listeners as the raw argument.
+        this.dispatchEvent(new CustomEvent(event, { detail: args[0] }));
+        break;
+    }
     return this;
   }
 
