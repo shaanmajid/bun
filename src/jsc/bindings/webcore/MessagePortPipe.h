@@ -44,7 +44,7 @@ public:
         Closed = 1ull << 0, // close() was called on this side; drops further deliveries.
         DrainScheduled = 1ull << 1, // a drain task for this side is in flight.
         Attached = 1ull << 2, // ctxId/port are valid; ok to schedule drains.
-    ContextKnown = 1ull << 3, // ctxId/port are valid for close-notification only (no drains).
+        ContextKnown = 1ull << 3, // ctxId/port are valid for close-notification only (no drains).
 
         QueuedShift = 8,
         QueuedOne = 1ull << QueuedShift,
