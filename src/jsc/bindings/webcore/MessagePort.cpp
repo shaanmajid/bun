@@ -403,6 +403,11 @@ bool MessagePort::addEventListener(const AtomString& eventType, Ref<EventListene
     if (eventType == eventNames().messageEvent) {
         start();
         m_hasMessageEventListener = true;
+    } else if (eventType == eventNames().closeEvent && isEntangled()) {
+        // Record our context with the pipe so the peer's close() can deliver a
+        // 'close' event even if we never started (no 'message' listener).
+        if (auto* context = scriptExecutionContext())
+            m_pipe->registerCloseContext(m_side, context->identifier(), ThreadSafeWeakPtr<MessagePort> { *this });
     }
     return EventTarget::addEventListener(eventType, WTF::move(listener), options);
 }

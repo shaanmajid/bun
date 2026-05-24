@@ -188,7 +188,7 @@ void MessagePortPipe::attach(uint8_t side, ScriptExecutionContextIdentifier ctxI
         s.ctxId = ctxId;
         s.port = WTF::move(port);
         uint64_t st = s.state.load(std::memory_order_relaxed);
-        uint64_t ns = (st | Attached) & ~Closed;
+        uint64_t ns = (st | Attached | ContextKnown) & ~Closed;
         if (queuedCount(st) > 0 && !(st & DrainScheduled)) {
             ns |= DrainScheduled;
             wakeCtx = ctxId;
@@ -197,6 +197,20 @@ void MessagePortPipe::attach(uint8_t side, ScriptExecutionContextIdentifier ctxI
     }
     if (wakeCtx)
         scheduleDrain(side, wakeCtx);
+}
+
+void MessagePortPipe::registerCloseContext(uint8_t side, ScriptExecutionContextIdentifier ctxId, ThreadSafeWeakPtr<MessagePort> port)
+{
+    ASSERT(side < 2);
+    auto& s = m_sides[side];
+    Locker locker { s.lock };
+    uint64_t st = s.state.load(std::memory_order_relaxed);
+    // Already closed, or context already known (started or previously registered).
+    if ((st & Closed) || (st & (Attached | ContextKnown)))
+        return;
+    s.ctxId = ctxId;
+    s.port = WTF::move(port);
+    s.state.store(st | ContextKnown, std::memory_order_release);
 }
 
 void MessagePortPipe::detach(uint8_t side)
@@ -211,7 +225,7 @@ void MessagePortPipe::detach(uint8_t side)
     // drainAndDispatch()'s s.ctxId != expectedCtx check makes it a no-op —
     // even if a new owner attach()es to a different context before it runs.
     // Messages remain queued for the next owner.
-    s.state.fetch_and(~uint64_t(Attached | DrainScheduled), std::memory_order_acq_rel);
+    s.state.fetch_and(~uint64_t(Attached | ContextKnown | DrainScheduled), std::memory_order_acq_rel);
 }
 
 void MessagePortPipe::close(uint8_t side)
@@ -267,7 +281,7 @@ void MessagePortPipe::notifyPeerClosed(uint8_t peerSide)
     {
         Locker locker { s.lock };
         uint64_t st = s.state.load(std::memory_order_acquire);
-        if ((st & Closed) || !(st & Attached))
+        if ((st & Closed) || !(st & ContextKnown))
             return;
         ctxId = s.ctxId;
     }
