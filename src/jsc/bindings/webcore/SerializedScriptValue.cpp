@@ -1747,8 +1747,10 @@ private:
                     write(index->value);
                     return true;
                 }
-                // MessagePort object could not be found in transferred message ports
-                code = SerializationReturnCode::ValidationError;
+                // MessagePort present in the message but not listed in the
+                // transfer list: node throws a DataCloneError with this message.
+                WebCore::propagateException(*m_lexicalGlobalObject, scope, Exception { DataCloneError, "Object that needs transfer was found in message but not listed in transferList"_s });
+                code = SerializationReturnCode::ExistingExceptionError;
                 return true;
             }
             if (auto* arrayBuffer = toPossiblySharedArrayBuffer(vm, obj)) {
