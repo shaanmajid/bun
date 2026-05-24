@@ -7,9 +7,10 @@
 //! `mach_absolute_time`, with ~24 ns resolution instead of ~12 µs. On Windows
 //! it replaces `GetTickCount64`'s ~15.6 ms granularity.
 //!
-//! `now_ns()` is calibrated once against the OS monotonic clock so its values
-//! share an epoch with `bun.getRoughTickCount()`. For pure A→B deltas where the
-//! epoch doesn't matter, `read_counter()` is the cheapest possible read.
+//! The calibrated clock is anchored once against the OS monotonic clock so its
+//! values share an epoch with `bun.getRoughTickCount()`. For pure A→B deltas
+//! where the epoch doesn't matter, `read_counter()` is the cheapest possible
+//! read.
 //!
 //! On x64 Linux/Windows the TSC frequency comes from CPUID: leaf 0x15 on bare
 //! metal, or the hypervisor timing leaf 0x4000_0010 inside a guest (leaf 0x15
@@ -100,7 +101,7 @@ fn read_frequency() -> u64 {
                 let _ = sysctlbyname(
                     NAME.as_ptr(),
                     core::ptr::from_mut::<u64>(&mut hz).cast::<c_void>(),
-                    &mut hz_len,
+                    &raw mut hz_len,
                     core::ptr::null(),
                     0,
                 );
@@ -309,14 +310,14 @@ fn os_monotonic_ns() -> u64 {
         {
             // SAFETY: spec is a valid out-pointer.
             unsafe {
-                let _ = libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut spec);
+                let _ = libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &raw mut spec);
             }
         }
         #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
         {
             // SAFETY: spec is a valid out-pointer.
             unsafe {
-                let _ = libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut spec);
+                let _ = libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut spec);
             }
         }
         (spec.tv_sec as u64)
