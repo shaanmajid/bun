@@ -235,10 +235,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
 
                 has_decorators = has_decorators || opts.has_argument_decorators;
             } else {
-                // The property was dropped (e.g. a TypeScript overload signature or
-                // abstract method), which drops its decorators and computed key too.
-                // Discard any scopes recorded while parsing them or the visit pass
-                // will hit a scope order mismatch.
                 p.discard_scopes_up_to(property_scope_index);
             }
         }
