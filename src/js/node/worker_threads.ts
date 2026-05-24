@@ -7,7 +7,7 @@ const EventEmitter = require("node:events");
 const Readable = require("internal/streams/readable");
 const Writable = require("internal/streams/writable");
 const { throwNotImplemented, warnNotImplementedOnce } = require("internal/shared");
-const { validateString, validateObject, validateInteger, validateNumber } = require("internal/validators");
+const { validateString, validateObject, validateInteger, validateNumber, validateBoolean } = require("internal/validators");
 
 // Mirror node's lib/internal/worker.js name handling: default "WorkerThread",
 // validate + trim when a name is provided.
@@ -719,6 +719,26 @@ class Worker extends EventEmitter {
     return this.#worker.startCpuProfileInternal().then(() => ({
       stop: () => this.#worker.stopCpuProfileInternal(),
     }));
+  }
+
+  startHeapProfile(options?: object) {
+    if (options !== undefined && options !== null) {
+      validateObject(options, "options");
+      const o = options as any;
+      if (o.sampleInterval !== undefined) validateInteger(o.sampleInterval, "options.sampleInterval", 1);
+      if (o.stackDepth !== undefined) validateInteger(o.stackDepth, "options.stackDepth", 0);
+      if (o.forceGC !== undefined) validateBoolean(o.forceGC, "options.forceGC");
+      if (o.includeObjectsCollectedByMajorGC !== undefined) validateBoolean(o.includeObjectsCollectedByMajorGC, "options.includeObjectsCollectedByMajorGC");
+      if (o.includeObjectsCollectedByMinorGC !== undefined) validateBoolean(o.includeObjectsCollectedByMinorGC, "options.includeObjectsCollectedByMinorGC");
+    }
+    if (this.#exited) {
+      return Promise.$reject($ERR_WORKER_NOT_RUNNING("Worker instance not running"));
+    }
+    // Bun has no allocation-sampling heap profiler; yield a valid but empty
+    // v8 sampling-heap-profile so the handle/stop() shape matches node.
+    const empty =
+      '{"head":{"callFrame":{"functionName":"(root)","scriptId":"0","url":"","lineNumber":-1,"columnNumber":-1},"selfSize":0,"id":1,"children":[]},"samples":[]}';
+    return Promise.$resolve({ stop: () => Promise.$resolve(empty) });
   }
 
   #onClose(e) {
