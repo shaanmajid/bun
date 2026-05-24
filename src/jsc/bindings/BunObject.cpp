@@ -92,9 +92,23 @@ namespace Bun {
 
 extern "C" bool has_bun_garbage_collector_flag_enabled;
 
-JSValue handleLazyPropertyCallbackException(VM& vm, JSValue result)
+JSValue handleLazyPropertyCallbackException(VM& vm, JSObject* object, BunObjectLazyPropCb callback)
 {
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+    JSValue result = JSValue::decode(callback(object->globalObject(), object));
+    if (scope.exception()) [[unlikely]] {
+        (void)scope.tryClearException();
+        return jsUndefined();
+    }
+    if (!result) [[unlikely]]
+        return jsUndefined();
+    return result;
+}
+
+static JSValue handleLazyPropertyCallbackException(VM& vm, JSObject* object, JSValue (*callback)(VM&, JSObject*))
+{
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+    JSValue result = callback(vm, object);
     if (scope.exception()) [[unlikely]] {
         (void)scope.tryClearException();
         return jsUndefined();
@@ -334,7 +348,7 @@ static JSValue defaultBunSQLObjectImpl(VM& vm, JSObject* bunObject)
 
 static JSValue defaultBunSQLObject(VM& vm, JSObject* bunObject)
 {
-    return handleLazyPropertyCallbackException(vm, defaultBunSQLObjectImpl(vm, bunObject));
+    return handleLazyPropertyCallbackException(vm, bunObject, defaultBunSQLObjectImpl);
 }
 
 static JSValue constructBunSQLObjectImpl(VM& vm, JSObject* bunObject)
@@ -349,7 +363,7 @@ static JSValue constructBunSQLObjectImpl(VM& vm, JSObject* bunObject)
 
 static JSValue constructBunSQLObject(VM& vm, JSObject* bunObject)
 {
-    return handleLazyPropertyCallbackException(vm, constructBunSQLObjectImpl(vm, bunObject));
+    return handleLazyPropertyCallbackException(vm, bunObject, constructBunSQLObjectImpl);
 }
 
 extern "C" JSC::EncodedJSValue JSPasswordObject__create(JSGlobalObject*);
@@ -407,7 +421,7 @@ static JSValue constructBunShellImpl(VM& vm, JSObject* bunObject)
 
 static JSValue constructBunShell(VM& vm, JSObject* bunObject)
 {
-    return handleLazyPropertyCallbackException(vm, constructBunShellImpl(vm, bunObject));
+    return handleLazyPropertyCallbackException(vm, bunObject, constructBunShellImpl);
 }
 
 static JSValue constructDNSObject(VM& vm, JSObject* bunObject)
