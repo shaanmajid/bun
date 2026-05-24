@@ -225,10 +225,6 @@ impl<P: StaticPipeWriterProcess> StaticPipeWriter<P> {
             std::ptr::from_ref(self) as usize,
             err
         );
-        // Clear the buffer before detaching: `buffer` aliases `self.source`'s
-        // storage, and `detach()` frees it. `drain_buffered_data` calls
-        // on_error() then Parent::on_write(), which would otherwise re-slice
-        // the freed allocation.
         self.buffer = RawSlice::EMPTY;
         self.source.detach();
         // Can't release start()'s +1 here: `drain_buffered_data` calls on_error() then

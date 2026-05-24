@@ -1403,14 +1403,6 @@ unsafe extern "C" fn append_buffer_span(
 }
 
 impl VectorArrayBuffer {
-    /// Collect an array of ArrayBufferViews into iovecs. Every element is read
-    /// before any raw pointer is taken, so user code run by an indexed read (a
-    /// getter, a proxy trap) cannot free a backing store that has already been
-    /// captured.
-    ///
-    /// `pin` is required when the spans outlive this call (async I/O): each
-    /// element is rooted and its backing store is pinned against detach until
-    /// [`Self::release`] runs.
     pub fn from_js(
         global_object: &JSGlobalObject,
         val: JSValue,
@@ -1436,11 +1428,6 @@ impl VectorArrayBuffer {
         };
         scope.assert_exception_presence_matches(status == -1);
         if pin {
-            // The C++ side already pinned each backing store; root the views
-            // themselves so a getter-returned element that is not reachable
-            // from `value` survives until completion. Set `pinned` even on
-            // failure so `release()` balances the elements collected before
-            // the error.
             out.pinned = true;
             for view in &out.views {
                 view.protect();

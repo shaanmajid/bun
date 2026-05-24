@@ -710,10 +710,6 @@ pub(crate) fn is_malformed_response_field(name: &[u8]) -> bool {
     )
 }
 
-/// RFC 9113 §8.2.1: a field value MUST NOT contain NUL (0x00), LF (0x0a), or
-/// CR (0x0d). HPACK is length-prefixed so these would otherwise pass through
-/// verbatim, breaking the no-CR/LF invariant the HTTP/1.1 parser provides and
-/// enabling header injection when values are forwarded downstream.
 pub fn is_malformed_response_value(value: &[u8]) -> bool {
     value.iter().any(|&c| c == 0 || c == b'\r' || c == b'\n')
 }
