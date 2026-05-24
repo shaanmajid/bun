@@ -733,7 +733,7 @@ namespace uWS
             headers++;
 
             for (unsigned int i = 1; i < UWS_HTTP_MAX_HEADERS_COUNT - 1; i++) {
-                /* Lower case and consume the field name */
+                /* Consume the field name (case-preserving; downstream lookups compare case-insensitively) */
                 preliminaryKey = postPaddedBuffer;
                 postPaddedBuffer = consumeFieldName(postPaddedBuffer);
                 headers->key = std::string_view(preliminaryKey, (size_t) (postPaddedBuffer - preliminaryKey));
