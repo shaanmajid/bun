@@ -606,7 +606,6 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
     }
 }
 
-
 JSValue createEnvironmentVariablesMap(Zig::GlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
