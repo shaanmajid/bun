@@ -188,6 +188,20 @@ mod _impl {
                     .throw());
             }
 
+            // Re-creating the Brotli encoder/decoder while the worker thread is
+            // inside BrotliEncoderCompressStream/BrotliDecoderDecompressStream
+            // would be a data race on the native state. Bun's own JS only calls
+            // init() before any write (zlib.ts), so this is only reachable by
+            // scripts poking at `_handle` directly.
+            if self.write_in_progress.get() {
+                return Err(global_this
+                    .err(
+                        ErrorCode::INVALID_STATE,
+                        format_args!("Cannot call init() while a write is in progress"),
+                    )
+                    .throw());
+            }
+
             // this does not get gc'd because it is stored in the JS object's
             // `this._writeState`. and the JS object is tied to the native handle
             // as `_handle[owner_symbol]`.
@@ -282,6 +296,10 @@ mod _impl {
             // intentionally left empty
             Ok(JSValue::UNDEFINED)
         }
+
+        /// Brotli parameters are init-only and the `params()` host_fn above is
+        /// intentionally empty, so there is never anything to defer.
+        pub(crate) fn apply_pending_params(&self) {}
 
         /// `CellRefCounted::destroy` target (refcount hit zero). Runs `deinit`
         /// then frees the Box-allocated payload — matches Zig
