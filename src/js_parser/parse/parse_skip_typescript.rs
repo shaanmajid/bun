@@ -1493,16 +1493,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         &mut self,
         flags: SkipTypeOptionsBitset,
     ) -> bool {
-        // The outcome of this attempt depends only on the position of the `extends`
-        // token and on whether conditional types are allowed, so an attempt that
-        // already backtracked here can be skipped. Each backtracked constraint gets
-        // re-parsed by the caller as the `extends` clause of a conditional type,
-        // which repeats the attempts nested inside it; without the memo that's
-        // exponential for deeply nested `infer X extends` constraints inside
-        // template literal types (found by fuzzing).
-        //
-        // Token offsets fit in 31 bits (`Loc` is an `i32`), so the offset and the
-        // flag bit pack into a `u32`.
         debug_assert!(self.lexer.start <= (u32::MAX >> 1) as usize);
         let memo_key = ((self.lexer.start as u32) << 1)
             | flags.contains(SkipTypeOptions::DisallowConditionalTypes) as u32;
