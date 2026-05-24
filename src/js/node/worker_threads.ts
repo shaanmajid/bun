@@ -354,7 +354,7 @@ function setupWorkerStdio(stdio) {
 let workerData = _workerData;
 let threadId = _threadId;
 // node: main thread name is "", worker default is "WorkerThread" (trimmed).
-const threadName = isMainThread ? "" : normalizeWorkerName(_threadName);
+const threadName = isMainThread ? "" : normalizeWorkerName(_threadName || undefined);
 // postMessageToThread (Node 22+): the Worker ctor always smuggles a control
 // MessagePort to the worker by wrapping workerData; unwrap it here.
 const messaging = require("internal/worker/messaging");
