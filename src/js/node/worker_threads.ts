@@ -13,7 +13,9 @@ const { validateString } = require("internal/validators");
 // validate + trim when a name is provided.
 // https://github.com/nodejs/node/blob/main/lib/internal/worker.js
 function normalizeWorkerName(rawName) {
-  if (rawName) {
+  // node gates on `!== undefined`, not truthiness: {name: 0|null|false} must
+  // throw ERR_INVALID_ARG_TYPE (via validateString) and {name: ""} stays "".
+  if (rawName !== undefined) {
     validateString(rawName, "options.name");
     return rawName.trim();
   }
@@ -560,6 +562,10 @@ class Worker extends EventEmitter {
     // native side skips the env snapshot and wires up the shared store.
     if (options && (options as any).env === SHARE_ENV) {
       options = { ...options, env: undefined, shareEnv: true } as NodeWorkerOptions;
+    } else if (options && (options as any).shareEnv !== undefined) {
+      // shareEnv is internal — only `env: SHARE_ENV` may enable it. Strip a
+      // user-supplied value so it can't trigger env sharing on its own.
+      options = { ...options, shareEnv: undefined } as NodeWorkerOptions;
     }
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
