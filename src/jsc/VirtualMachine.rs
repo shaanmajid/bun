@@ -1435,6 +1435,16 @@ impl VirtualMachine {
 
         let hooks = runtime_hooks().expect("RuntimeHooks not installed");
         if self.is_handling_uncaught_exception {
+            if !self.is_main_thread() {
+                // node parity: a throw inside the uncaughtException handler in a
+                // worker exits the worker with code 1 (not the main-thread fatal
+                // code 7). Report it to the parent + arm termination via the
+                // normal path; process_exit() RETURNS on a worker, so the
+                // main-thread process_exit(7)+panic below would crash.
+                self.exit_handler.exit_code = 1;
+                (self.on_unhandled_rejection)(self, global_object, err);
+                return false;
+            }
             self.run_error_handler(err, None);
             // SAFETY: `global_object` is the live VM global; `process_exit` is
             // `bun_runtime::node::process::exit` (main-thread `noreturn`).

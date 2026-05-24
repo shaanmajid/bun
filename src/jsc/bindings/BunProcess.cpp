@@ -279,7 +279,7 @@ static JSValue constructProcessReleaseObject(VM& vm, JSObject* processObject)
 
 static void dispatchExitInternal(JSC::JSGlobalObject* globalObject, Process* process, int exitCode)
 {
-    static bool processIsExiting = false;
+    static thread_local bool processIsExiting = false;
     if (processIsExiting)
         return;
     processIsExiting = true;
@@ -1210,6 +1210,20 @@ extern "C" int Bun__handleUncaughtException(JSC::JSGlobalObject* lexicalGlobalOb
     auto* process = globalObject->processObject();
     auto& wrapped = process->wrapped();
     auto& vm = JSC::getVM(globalObject);
+
+    // node parity (exitWithUndefinedFatalException): the internal fatal-exception
+    // handler is monkey-patchable as process._fatalException. If user code
+    // replaces it with a non-callable value, node cannot dispatch and exits with
+    // code 6 (InvalidFatalExceptionMonkeyPatching).
+    {
+        auto fatalScope = DECLARE_THROW_SCOPE(vm);
+        JSValue fatalException = process->get(globalObject, Identifier::fromString(vm, "_fatalException"_s));
+        RETURN_IF_EXCEPTION(fatalScope, false);
+        if (!fatalException.isCallable()) {
+            Bun__Process__exit(globalObject, 6);
+            return true;
+        }
+    }
 
     MarkedArgumentBuffer args;
     args.append(exception);
