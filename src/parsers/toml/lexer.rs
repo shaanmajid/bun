@@ -1337,7 +1337,6 @@ pub(crate) fn is_identifier_part(code_point: CodePoint) -> bool {
     // bounding to ASCII before the byte cast above is sound.
 }
 
-
 #[inline]
 fn float64(num: CodePoint) -> f64 {
     num as f64
