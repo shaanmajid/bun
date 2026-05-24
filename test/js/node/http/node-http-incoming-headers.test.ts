@@ -5,7 +5,7 @@
 //     `headers`, lazily cached on first access.
 //
 // https://github.com/oven-sh/bun/issues/31318 (and #20433 / #24268)
-import { expect, describe, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import * as http from "node:http";
 import * as net from "node:net";
 
