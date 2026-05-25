@@ -581,9 +581,9 @@ class Worker extends EventEmitter {
     // along transferred; the worker unwraps it on load.
     const { portToMain, portToWorker } = messaging.createMessagingChannel();
     const workerDataWrapper: any = { [BUN_WORKER_MESSAGING_KEY]: portToWorker, data: options.workerData };
-    if (stdioTransfer.length > 0) {
-      workerDataWrapper[BUN_WORKER_STDIO_KEY] = stdioForWorker;
-    }
+    // stdout/stderr always create channels (stdin only when requested), so the
+    // worker always receives a stdio control object.
+    workerDataWrapper[BUN_WORKER_STDIO_KEY] = stdioForWorker;
     options = {
       ...options,
       workerData: workerDataWrapper,
@@ -612,11 +612,14 @@ class Worker extends EventEmitter {
       // alive: the worker's own ref does that, and worker.unref() must let the
       // parent exit. Forward, but unref these ports so they don't pin the loop.
       if (this.#stdoutAutoPipe) {
-        this.stdout.pipe(process.stdout, { end: false });
+        // Forward via 'data' rather than pipe(): pipe() registers an error
+        // listener on the shared process.stdout per worker, so many concurrent
+        // workers trip MaxListenersExceededWarning. Never end the parent stream.
+        this.stdout.on("data", chunk => process.stdout.write(chunk));
         this.#stdoutPort.unref();
       }
       if (this.#stderrAutoPipe) {
-        this.stderr.pipe(process.stderr, { end: false });
+        this.stderr.on("data", chunk => process.stderr.write(chunk));
         this.#stderrPort.unref();
       }
     } catch (e) {
