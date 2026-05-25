@@ -55,6 +55,12 @@ MessagePort::MessagePort(ScriptExecutionContext& context, Ref<MessagePortPipe>&&
 {
     // The WeakPtrFactory must be initialized on the owning thread.
     initializeWeakPtrFactory();
+    // Every port (local MessageChannel ends included, not just transferred
+    // ones) refs the event loop while it has a 'message' listener, matching
+    // Node: a listening port keeps its thread alive until closed or unref'd.
+    // Without this a buffered message can be lost when its (late) listener is
+    // added after the loop would otherwise have drained.
+    onDidChangeListener = &MessagePort::onDidChangeListenerImpl;
 }
 
 MessagePort::~MessagePort()
@@ -249,10 +255,6 @@ Ref<MessagePort> MessagePort::entangle(ScriptExecutionContext& context, Transfer
 {
     ASSERT(transferred.pipe);
     auto port = MessagePort::create(context, transferred.pipe.releaseNonNull(), transferred.side);
-    // Only transferred ports ref the event loop on message-listener
-    // add/remove; ports that were never transferred (both ends of a local
-    // MessageChannel) don't hold the process open.
-    port->onDidChangeListener = &MessagePort::onDidChangeListenerImpl;
     return port;
 }
 
@@ -403,6 +405,13 @@ bool MessagePort::addEventListener(const AtomString& eventType, Ref<EventListene
     if (eventType == eventNames().messageEvent) {
         start();
         m_hasMessageEventListener = true;
+        // start() no-ops after the first call; re-attach so a 'message' listener
+        // re-added after a pause (all listeners removed) re-schedules the drain
+        // for messages buffered in the meantime.
+        if (m_started && isEntangled()) {
+            if (auto* context = scriptExecutionContext())
+                m_pipe->attach(m_side, context->identifier(), ThreadSafeWeakPtr<MessagePort> { *this });
+        }
     } else if (eventType == eventNames().closeEvent && isEntangled()) {
         // Record our context with the pipe so the peer's close() can deliver a
         // 'close' event even if we never started (no 'message' listener).

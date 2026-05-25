@@ -117,6 +117,15 @@ void MessagePortPipe::drainAndDispatch(uint8_t side, ScriptExecutionContextIdent
         limit = std::max<size_t>(s.inbox.size(), 1000);
     }
 
+    // A started port whose 'message' listeners have all been removed is paused:
+    // leave the inbox buffered and stop draining. A later addEventListener
+    // ('message') re-attaches and re-schedules this drain.
+    if (!port->hasMessageEventListener()) {
+        Locker locker { s.lock };
+        s.state.fetch_and(~uint64_t(DrainScheduled), std::memory_order_acq_rel);
+        return;
+    }
+
     auto* context = port->scriptExecutionContext();
     if (!context || !context->globalObject()) {
         Locker locker { s.lock };
