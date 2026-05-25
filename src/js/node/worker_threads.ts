@@ -661,10 +661,19 @@ class Worker extends EventEmitter {
 
   ref() {
     this.#worker.ref();
+    // Captured stdio ports follow the worker's ref state (a consumed
+    // worker.stdout/stderr refs the loop via its message listener). Auto-piped
+    // ports stay unref'd — the worker's own ref governs their lifetime.
+    if (!this.#stdoutAutoPipe) this.#stdoutPort?.ref();
+    if (!this.#stderrAutoPipe) this.#stderrPort?.ref();
+    this.#stdinPort?.ref();
   }
 
   unref() {
     this.#worker.unref();
+    if (!this.#stdoutAutoPipe) this.#stdoutPort?.unref();
+    if (!this.#stderrAutoPipe) this.#stderrPort?.unref();
+    this.#stdinPort?.unref();
   }
 
   get stdin() {
