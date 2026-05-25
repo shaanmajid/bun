@@ -485,6 +485,46 @@ bool JSSharedEnvMap::getOwnPropertySlot(JSObject* object, JSGlobalObject* global
     return true;
 }
 
+// Mirror the side effects of the regular process.env CustomSetters for keys
+// whose writes drive native state. SharedEnvStore only updates the shared
+// string map; it does not touch the native TZ/TLS/verbose caches or the Zig
+// env map that fetch()'s proxy resolution reads, so without this a worker that
+// swapped process.env to the shared store would silently drop those effects.
+static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String& key, const String& stringValue)
+{
+    VM& vm = JSC::getVM(globalObject);
+    if (key == "TZ"_s) {
+        if (stringValue.length() < 32 && WTF::setTimeZoneOverride(stringValue))
+            vm.dateCache.resetIfNecessarySlow();
+        return;
+    }
+    if (key == "NODE_TLS_REJECT_UNAUTHORIZED"_s) {
+        Bun__setTLSRejectUnauthorizedValue((stringValue == "0"_s || stringValue == "false"_s) ? 0 : 1);
+        return;
+    }
+    if (key == "BUN_CONFIG_VERBOSE_FETCH"_s) {
+        if (stringValue == "1"_s || stringValue == "true"_s)
+            Bun__setVerboseFetchValue(1);
+        else if (stringValue == "curl"_s)
+            Bun__setVerboseFetchValue(2);
+        else
+            Bun__setVerboseFetchValue(0);
+        return;
+    }
+    // Proxy vars: fetch()'s getHttpProxyFor() reads the Zig env map, so sync.
+    static constexpr ASCIILiteral proxyVarNames[] = {
+        "HTTP_PROXY"_s, "http_proxy"_s, "HTTPS_PROXY"_s, "https_proxy"_s, "NO_PROXY"_s, "no_proxy"_s,
+    };
+    for (auto proxyName : proxyVarNames) {
+        if (key == proxyName) {
+            BunString name = Bun::toString(key);
+            BunString val = Bun::toString(stringValue);
+            Bun__setEnvValue(globalObject, &name, &val);
+            return;
+        }
+    }
+}
+
 bool JSSharedEnvMap::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
     VM& vm = JSC::getVM(globalObject);
@@ -499,7 +539,9 @@ bool JSSharedEnvMap::put(JSCell* cell, JSGlobalObject* globalObject, PropertyNam
     String stringValue = value.toWTFString(globalObject);
     RETURN_IF_EXCEPTION(scope, false);
 
-    SharedEnvStore::singleton().set(String(uid), stringValue);
+    String keyStr = String(uid);
+    applySharedEnvSideEffects(globalObject, keyStr, stringValue);
+    SharedEnvStore::singleton().set(keyStr, stringValue);
     return true;
 }
 
@@ -537,7 +579,9 @@ bool JSSharedEnvMap::defineOwnProperty(JSObject* object, JSGlobalObject* globalO
     String stringValue = descriptor.value().toWTFString(globalObject);
     RETURN_IF_EXCEPTION(scope, false);
 
-    SharedEnvStore::singleton().set(String(uid), stringValue);
+    String keyStr = String(uid);
+    applySharedEnvSideEffects(globalObject, keyStr, stringValue);
+    SharedEnvStore::singleton().set(keyStr, stringValue);
     return true;
 }
 
