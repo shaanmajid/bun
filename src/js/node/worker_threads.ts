@@ -293,7 +293,7 @@ function makePortReadable(port) {
   // reads stdin. Buffered messages flush once the listener is added.
   const stream = new Readable({
     read() {
-      if (attached === false) {
+      if (attached === false && ended === false) {
         attached = true;
         port.on("message", onMessage);
       }
@@ -671,12 +671,22 @@ class Worker extends EventEmitter {
 
   get stdout() {
     if (this.#stdoutPort === undefined) return null;
-    return (this.#stdout ??= makePortReadable(this.#stdoutPort));
+    if (this.#stdout === undefined) {
+      this.#stdout = makePortReadable(this.#stdoutPort);
+      // If the worker already exited, end immediately: a late first access
+      // would otherwise ref the parent loop with no release (peer gone) -> hang.
+      if (this.#exited) this.#stdout.endFromOwner();
+    }
+    return this.#stdout;
   }
 
   get stderr() {
     if (this.#stderrPort === undefined) return null;
-    return (this.#stderr ??= makePortReadable(this.#stderrPort));
+    if (this.#stderr === undefined) {
+      this.#stderr = makePortReadable(this.#stderrPort);
+      if (this.#exited) this.#stderr.endFromOwner();
+    }
+    return this.#stderr;
   }
 
   get performance() {
