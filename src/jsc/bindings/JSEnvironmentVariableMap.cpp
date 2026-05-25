@@ -369,6 +369,18 @@ JSC_DEFINE_HOST_FUNCTION(jsEditWindowsEnvVar, (JSGlobalObject * global, JSC::Cal
 // env map (read by `Bun.env`, fetch proxy resolution, etc.) is still
 // snapshotted per worker, so those may diverge from `process.env` under
 // SHARE_ENV. The Node test this targets only exercises `process.env`.
+// On Windows env var names are case-insensitive; normalize shared-store keys
+// to uppercase so a swapped process.env matches the regular env object (which
+// also uppercases under OS(WINDOWS)).
+static ALWAYS_INLINE String normalizeSharedEnvKey(const String& key)
+{
+#if OS(WINDOWS)
+    return key.convertToASCIIUppercase();
+#else
+    return key;
+#endif
+}
+
 class SharedEnvStore {
 public:
     static SharedEnvStore& singleton()
@@ -380,7 +392,7 @@ public:
     String get(const String& key)
     {
         Locker locker { m_lock };
-        auto it = m_map.find(key);
+        auto it = m_map.find(normalizeSharedEnvKey(key));
         if (it == m_map.end())
             return String();
         return it->value.isolatedCopy();
@@ -389,13 +401,13 @@ public:
     void set(const String& key, const String& value)
     {
         Locker locker { m_lock };
-        m_map.set(key.isolatedCopy(), value.isolatedCopy());
+        m_map.set(normalizeSharedEnvKey(key).isolatedCopy(), value.isolatedCopy());
     }
 
     void remove(const String& key)
     {
         Locker locker { m_lock };
-        m_map.remove(key);
+        m_map.remove(normalizeSharedEnvKey(key));
     }
 
     Vector<String> keys()
@@ -490,9 +502,11 @@ bool JSSharedEnvMap::getOwnPropertySlot(JSObject* object, JSGlobalObject* global
 // string map; it does not touch the native TZ/TLS/verbose caches or the Zig
 // env map that fetch()'s proxy resolution reads, so without this a worker that
 // swapped process.env to the shared store would silently drop those effects.
-static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String& key, const String& stringValue)
+static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String& rawKey, const String& stringValue)
 {
     VM& vm = JSC::getVM(globalObject);
+    // Windows env keys are case-insensitive; normalize so process.env.tz hits TZ.
+    String key = normalizeSharedEnvKey(rawKey);
     if (key == "TZ"_s) {
         if (stringValue.length() < 32 && WTF::setTimeZoneOverride(stringValue))
             vm.dateCache.resetIfNecessarySlow();
