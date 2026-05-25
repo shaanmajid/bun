@@ -906,6 +906,16 @@ class Worker extends EventEmitter {
         error.stack = stack;
       }
     }
+    // The native loader reports a failed worker-entry resolution as
+    // 'ModuleNotFound resolving "<path>" (entry point)'; reshape it into node's
+    // "Cannot find module '<path>'" (code MODULE_NOT_FOUND).
+    if (typeof error?.message === "string" && error.message.includes("(entry point)")) {
+      const m = /ModuleNotFound resolving "(.+?)"/.exec(error.message);
+      if (m) {
+        error = new Error(`Cannot find module '${m[1]}'`, { cause: error });
+        (error as any).code = "MODULE_NOT_FOUND";
+      }
+    }
     this.emit("error", error);
   }
 
