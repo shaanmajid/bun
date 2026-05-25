@@ -721,6 +721,21 @@ class Worker extends EventEmitter {
     }));
   }
 
+  cpuUsage(prevValue?: { user: number; system: number }) {
+    if (prevValue) {
+      validateObject(prevValue, "prevValue");
+      validateNumber(prevValue.user, "prevValue.user");
+      if (prevValue.user < 0 || !Number.isFinite(prevValue.user))
+        throw $ERR_OUT_OF_RANGE("prevValue.user", ">= 0 and a finite number", prevValue.user);
+      validateNumber(prevValue.system, "prevValue.system");
+      if (prevValue.system < 0 || !Number.isFinite(prevValue.system))
+        throw $ERR_OUT_OF_RANGE("prevValue.system", ">= 0 and a finite number", prevValue.system);
+    }
+    return this.#worker.cpuUsageInternal().then((abs: { user: number; system: number }) =>
+      prevValue ? { user: abs.user - prevValue.user, system: abs.system - prevValue.system } : abs,
+    );
+  }
+
   startHeapProfile(options?: object) {
     if (options !== undefined && options !== null) {
       validateObject(options, "options");

@@ -21,6 +21,7 @@
 #include "config.h"
 #include "JSWorker.h"
 #include "BunCPUProfiler.h"
+#include <sys/resource.h>
 
 #include "ActiveDOMObject.h"
 #include "EventNames.h"
@@ -79,6 +80,7 @@ static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapSnapshot);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapStatistics);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_startCpuProfileInternal);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_stopCpuProfileInternal);
+static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_cpuUsageInternal);
 
 // Attributes
 
@@ -426,6 +428,7 @@ static const HashTableValue JSWorkerPrototypeTableValues[] = {
     { "getHeapStatistics"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_getHeapStatistics, 0 } },
     { "startCpuProfileInternal"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_startCpuProfileInternal, 0 } },
     { "stopCpuProfileInternal"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_stopCpuProfileInternal, 0 } },
+    { "cpuUsageInternal"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_cpuUsageInternal, 0 } },
 };
 
 const ClassInfo JSWorkerPrototype::s_info = { "Worker"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWorkerPrototype) };
@@ -852,6 +855,50 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_stopCpuProfileIntern
         promise->resolve(globalObject, vm, jsString(vm, String("{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s)));
     }
     return JSValue::encode(promise);
+}
+
+static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_cpuUsageInternalBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSWorker>::ClassParameter castedThis)
+{
+    auto* globalObject = defaultGlobalObject(lexicalGlobalObject);
+    auto& vm = JSC::getVM(globalObject);
+    auto& worker = castedThis->wrapped();
+    auto* promise = JSC::JSPromise::create(vm, globalObject->promiseStructure());
+    if (!worker.isOnline()) {
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+        return JSValue::encode(promise);
+    }
+    auto* promiseHandle = new Strong<JSPromise>(vm, promise);
+    auto parentId = globalObject->scriptExecutionContext()->identifier();
+    bool accepted = worker.postTaskToWorkerGlobalScope([promiseHandle, parentId](ScriptExecutionContext&) {
+        struct rusage ru;
+        memset(&ru, 0, sizeof(ru));
+#if defined(RUSAGE_THREAD)
+        getrusage(RUSAGE_THREAD, &ru);
+#else
+        getrusage(RUSAGE_SELF, &ru);
+#endif
+        double user = static_cast<double>(ru.ru_utime.tv_sec) * 1e6 + static_cast<double>(ru.ru_utime.tv_usec);
+        double sys = static_cast<double>(ru.ru_stime.tv_sec) * 1e6 + static_cast<double>(ru.ru_stime.tv_usec);
+        ScriptExecutionContext::postTaskTo(parentId, [promiseHandle, user, sys](ScriptExecutionContext& parentCtx) {
+            std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
+            auto& pvm = parentCtx.vm();
+            auto* go = parentCtx.globalObject();
+            JSObject* o = constructEmptyObject(go);
+            o->putDirect(pvm, Identifier::fromString(pvm, "user"_s), jsNumber(user));
+            o->putDirect(pvm, Identifier::fromString(pvm, "system"_s), jsNumber(sys));
+            handle->get()->resolve(go, pvm, o);
+        });
+    });
+    if (!accepted) {
+        delete promiseHandle;
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+    }
+    return JSValue::encode(promise);
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_cpuUsageInternal, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
+{
+    return IDLOperation<JSWorker>::call<jsWorkerPrototypeFunction_cpuUsageInternalBody>(*lexicalGlobalObject, *callFrame, "cpuUsageInternal");
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_startCpuProfileInternal, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
