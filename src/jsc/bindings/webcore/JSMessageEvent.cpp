@@ -205,7 +205,8 @@ template<> MessageEvent::Init convertDictionary<MessageEvent::Init>(JSGlobalObje
     if (!sourceValue.isUndefinedOrNull()) {
         result.source = convert<IDLNullable<IDLInterface<MessagePort>>>(lexicalGlobalObject, sourceValue, [&sourceValue](JSGlobalObject& lexicalGlobalObject, ThrowScope& throwScope) {
             auto inspected = Bun__inspect_singleline(&lexicalGlobalObject, sourceValue).transferToWTFString();
-            if (throwScope.exception()) [[unlikely]] return;
+            if (throwScope.exception()) [[unlikely]]
+                return;
             throwTypeError(&lexicalGlobalObject, throwScope, makeString("MessageEvent constructor: Expected eventInitDict.source (\""_s, inspected, "\") to be an instance of MessagePort."_s));
         });
         RETURN_IF_EXCEPTION(throwScope, {});
