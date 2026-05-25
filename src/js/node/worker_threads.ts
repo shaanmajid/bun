@@ -283,7 +283,7 @@ function makePortReadable(port) {
       // Drop the listener so the control port stops holding the event loop
       // open once the stream has ended.
       port.off("message", onMessage);
-    } else {
+    } else if (ended === false) {
       stream.push(Buffer.from(chunk));
     }
   }
@@ -363,7 +363,7 @@ function setupWorkerStdio(stdio) {
 let workerData = _workerData;
 let threadId = _threadId;
 // node: main thread name is "", worker default is "WorkerThread" (trimmed).
-const threadName = isMainThread ? "" : normalizeWorkerName(_threadName || undefined);
+const threadName = isMainThread ? "" : (_threadName ?? "WorkerThread");
 // postMessageToThread (Node 22+): the Worker ctor always smuggles a control
 // MessagePort to the worker by wrapping workerData; unwrap it here.
 const messaging = require("internal/worker/messaging");
@@ -586,6 +586,9 @@ class Worker extends EventEmitter {
     workerDataWrapper[BUN_WORKER_STDIO_KEY] = stdioForWorker;
     options = {
       ...options,
+      // Pass the parent's already-normalized/validated name so the worker can
+      // use it verbatim (native cannot distinguish omitted from explicit "").
+      name: this.#name,
       workerData: workerDataWrapper,
       transferList: options.transferList
         ? [...options.transferList, portToWorker, ...stdioTransfer]
