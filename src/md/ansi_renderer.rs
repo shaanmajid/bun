@@ -207,12 +207,6 @@ const SPAN_DEL: u32 = 1 << 2;
 const SPAN_U: u32 = 1 << 3;
 const SPAN_CODE: u32 = 1 << 4;
 
-/// Upper bound on the visible indentation (blockquote bars + list indent)
-/// emitted at the start of each rendered line. Nesting deeper than this is
-/// unreadable on any terminal, and without a cap every line's prefix grows
-/// with the nesting depth — a document of pathologically nested lists or
-/// quotes (e.g. `- - - - …` repeated thousands of times) would otherwise
-/// produce output quadratic in the input size.
 const MAX_INDENT_COLS: u32 = 128;
 
 struct InlineStyle {
@@ -1143,10 +1137,6 @@ impl<'a> AnsiRenderer<'a> {
         }
     }
 
-    /// Quote bars and indent spaces to draw for the current block stack,
-    /// capped at MAX_INDENT_COLS visible columns total. writeIndent and
-    /// currentIndent must agree on these numbers so the wrap math matches
-    /// what was actually emitted.
     fn indent_counts(&self) -> (u32, u32) {
         let quote_bars = self.quote_depth.min(MAX_INDENT_COLS / 2);
         let other_indent = self.list_indent_cols.min(MAX_INDENT_COLS - quote_bars * 2);
