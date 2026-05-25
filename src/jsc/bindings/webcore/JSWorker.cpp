@@ -25,6 +25,9 @@
 #include <uv.h>
 #else
 #include <sys/resource.h>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 #endif
 
 #include "ActiveDOMObject.h"
@@ -833,6 +836,8 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_startCpuProfileInter
     return JSValue::encode(promise);
 }
 
+static constexpr ASCIILiteral kEmptyCpuProfileJSON = "{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s;
+
 static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_stopCpuProfileInternalBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSWorker>::ClassParameter castedThis)
 {
     auto* globalObject = defaultGlobalObject(lexicalGlobalObject);
@@ -846,7 +851,7 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_stopCpuProfileIntern
         if (Bun::isCPUProfilerRunning())
             Bun::stopCPUProfiler(workerCtx.vm(), &result, nullptr);
         if (result.isEmpty())
-            result = "{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s;
+            result = kEmptyCpuProfileJSON;
         ScriptExecutionContext::postTaskTo(parentId, [promiseHandle, result = result.isolatedCopy()](ScriptExecutionContext& parentCtx) {
             std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
             handle->get()->resolve(parentCtx.globalObject(), parentCtx.vm(), jsString(parentCtx.vm(), result));
@@ -856,7 +861,7 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_stopCpuProfileIntern
         // Worker already gone: resolve with an empty profile rather than reject,
         // so a handle.stop() after terminate still yields parseable JSON.
         delete promiseHandle;
-        promise->resolve(globalObject, vm, jsString(vm, String("{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s)));
+        promise->resolve(globalObject, vm, jsString(vm, String(kEmptyCpuProfileJSON)));
     }
     return JSValue::encode(promise);
 }
@@ -882,6 +887,17 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_cpuUsageInternalBody
             user = static_cast<double>(ru.ru_utime.tv_sec) * 1e6 + static_cast<double>(ru.ru_utime.tv_usec);
             sys = static_cast<double>(ru.ru_stime.tv_sec) * 1e6 + static_cast<double>(ru.ru_stime.tv_usec);
         }
+#elif defined(__APPLE__)
+        // Darwin has no RUSAGE_THREAD; RUSAGE_SELF would report whole-process
+        // CPU for every worker. Use mach thread_info for this thread only.
+        mach_port_t machThread = mach_thread_self();
+        thread_basic_info_data_t tinfo;
+        mach_msg_type_number_t tcount = THREAD_BASIC_INFO_COUNT;
+        if (thread_info(machThread, THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&tinfo), &tcount) == KERN_SUCCESS) {
+            user = static_cast<double>(tinfo.user_time.seconds) * 1e6 + static_cast<double>(tinfo.user_time.microseconds);
+            sys = static_cast<double>(tinfo.system_time.seconds) * 1e6 + static_cast<double>(tinfo.system_time.microseconds);
+        }
+        mach_port_deallocate(mach_task_self(), machThread);
 #else
         struct rusage ru;
         memset(&ru, 0, sizeof(ru));
