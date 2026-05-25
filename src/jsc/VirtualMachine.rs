@@ -1452,6 +1452,14 @@ impl VirtualMachine {
             panic!("Uncaught exception while handling uncaught exception");
         }
         if self.exit_on_uncaught_exception {
+            if !self.is_main_thread() {
+                // process_exit() RETURNS on a worker, so process_exit(1)+panic
+                // below would crash. Exit the worker with code 1 via the normal
+                // path instead (e.g. a throw from a worker's beforeExit handler).
+                self.exit_handler.exit_code = 1;
+                (self.on_unhandled_rejection)(self, global_object, err);
+                return false;
+            }
             self.run_error_handler(err, None);
             // SAFETY: see above.
             unsafe { (hooks.process_exit)(global_object.as_ptr(), 1) };
