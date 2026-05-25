@@ -37,6 +37,8 @@
 #include "WebCoreOpaqueRoot.h"
 #include <wtf/TZoneMallocInlines.h>
 
+extern "C" void Bun__Process__emitWarning(Zig::GlobalObject*, JSC::EncodedJSValue warning, JSC::EncodedJSValue type, JSC::EncodedJSValue code, JSC::EncodedJSValue ctor);
+
 extern "C" void Bun__eventLoop__incrementRefConcurrently(void* bunVM, int delta);
 
 namespace WebCore {
@@ -93,8 +95,23 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
     if (!ports.isEmpty()) {
         // A port may not be posted through itself or its own entangled peer.
         for (auto& port : ports) {
-            if (port->pipe() == m_pipe.ptr())
-                return Exception { DataCloneError, "Transfer list contains source port"_s };
+            if (port->pipe() == m_pipe.ptr()) {
+                if (port.get() == this)
+                    return Exception { DataCloneError, "Transfer list contains source port"_s };
+                // node: posting a port's own entangled peer through it targets
+                // the message at itself; node warns and loses the channel rather
+                // than throwing. ArrayBuffers in the transfer were already
+                // detached during serialization above; drop the message and
+                // close so the dead channel stops keeping the loop alive.
+                auto& vm = state.vm();
+                Bun__Process__emitWarning(defaultGlobalObject(&state),
+                    JSC::JSValue::encode(JSC::jsString(vm, String("The target port was posted to itself, and the communication channel was lost"_s))),
+                    JSC::JSValue::encode(JSC::jsString(vm, String("Warning"_s))),
+                    JSC::JSValue::encode(JSC::jsUndefined()),
+                    JSC::JSValue::encode(JSC::jsUndefined()));
+                close();
+                return {};
+            }
         }
         auto disentangled = MessagePort::disentanglePorts(WTF::move(ports));
         if (disentangled.hasException())
