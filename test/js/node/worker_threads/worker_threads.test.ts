@@ -114,8 +114,10 @@ test("all worker_threads worker instance properties are present", async () => {
   expect(worker.ref).toBeFunction();
   expect(worker.unref).toBeFunction();
   expect(worker.stdin).toBeNull();
-  expect(worker.stdout).toBeNull();
-  expect(worker.stderr).toBeNull();
+  // node always exposes worker.stdout/stderr as Readables (fed by the worker's
+  // process.stdout/stderr); only stdin stays null until { stdin: true }.
+  expect(worker.stdout).not.toBeNull();
+  expect(worker.stderr).not.toBeNull();
   expect(worker.performance).toBeDefined();
   expect(worker.terminate).toBeFunction();
   expect(worker.postMessage).toBeFunction();

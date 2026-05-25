@@ -304,6 +304,9 @@ function makePortReadable(port) {
     if (ended === false) {
       ended = true;
       stream.push(null);
+      // Drop the listener so the port stops holding the event loop open once
+      // the owner (worker exit) has ended the stream.
+      port.off("message", onMessage);
     }
   };
   return stream;
@@ -514,6 +517,8 @@ class Worker extends EventEmitter {
   #stdin;
   #stdout;
   #stderr;
+  #stdoutAutoPipe = false;
+  #stderrAutoPipe = false;
 
   // this is used by terminate();
   // either is the exit code if exited, a promise resolving to the exit code, or undefined if we haven't sent .terminate() yet
@@ -554,17 +559,22 @@ class Worker extends EventEmitter {
       stdioForWorker.stdin = channel.port2;
       stdioTransfer.push(channel.port2);
     }
-    if (options.stdout) {
+    // node always makes worker.stdout/stderr Readables fed by the worker's
+    // process.stdout/stderr. When the user did not request capture, the parent
+    // auto-pipes them to its own stdout/stderr so output still surfaces.
+    {
       const channel = new MessageChannel();
       this.#stdoutPort = channel.port1;
       stdioForWorker.stdout = channel.port2;
       stdioTransfer.push(channel.port2);
+      if (!options.stdout) this.#stdoutAutoPipe = true;
     }
-    if (options.stderr) {
+    {
       const channel = new MessageChannel();
       this.#stderrPort = channel.port1;
       stdioForWorker.stderr = channel.port2;
       stdioTransfer.push(channel.port2);
+      if (!options.stderr) this.#stderrAutoPipe = true;
     }
     // Always create a control channel so postMessageToThread can reach this worker.
     // Wrap the user's workerData so the control port (and any stdio ports) ride
@@ -595,6 +605,20 @@ class Worker extends EventEmitter {
     }
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
+    // With uncaptured stdio, forward the worker's output to the parent's
+    // stdout/stderr. end:false so the worker exiting (which ends worker.stdout)
+    // does not close the parent's stream.
+    // Auto-piped (uncaptured) stdio must not independently keep the parent
+    // alive: the worker's own ref does that, and worker.unref() must let the
+    // parent exit. Forward, but unref these ports so they don't pin the loop.
+    if (this.#stdoutAutoPipe) {
+      this.stdout.pipe(process.stdout, { end: false });
+      this.#stdoutPort.unref();
+    }
+    if (this.#stderrAutoPipe) {
+      this.stderr.pipe(process.stderr, { end: false });
+      this.#stderrPort.unref();
+    }
     } catch (e) {
       if (this.#urlToRevoke) {
         URL.revokeObjectURL(this.#urlToRevoke);
