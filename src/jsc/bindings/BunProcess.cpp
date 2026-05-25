@@ -3789,7 +3789,11 @@ JSC_DEFINE_HOST_FUNCTION(Process_stubFunctionReturningArray, (JSGlobalObject * g
 
 static JSValue Process_stubEmptyArray(VM& vm, JSObject* processObject)
 {
-    return JSC::constructEmptyArray(processObject->globalObject(), nullptr);
+    auto* globalObject = processObject->globalObject();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSC::JSArray* result = JSC::constructEmptyArray(globalObject, nullptr);
+    RETURN_IF_EXCEPTION(scope, {});
+    return result;
 }
 
 static JSValue Process_stubEmptySet(VM& vm, JSObject* processObject)
