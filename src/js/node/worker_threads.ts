@@ -489,9 +489,16 @@ function applyWorkerProcessOverrides() {
   }
   proc.umask = umask;
   // Disabled, throwing stubs (each carries `.disabled === true`, like node).
-  const disabled = ["abort", "chdir", "send", "disconnect"];
+  const disabled = ["abort", "chdir"];
   if (process.platform !== "win32") {
     disabled.push("setuid", "seteuid", "setgid", "setegid", "setgroups", "initgroups");
+  }
+  // node only disables the IPC surface (send/disconnect/channel/connected) in a
+  // worker that inherited an IPC channel (NODE_CHANNEL_FD set); without it they
+  // stay absent so the canonical `if (process.send)` guard keeps working.
+  const hasIpc = !!process.env.NODE_CHANNEL_FD;
+  if (hasIpc) {
+    disabled.push("send", "disconnect");
   }
   for (const name of disabled) {
     const stub: any = function () {
@@ -500,15 +507,17 @@ function applyWorkerProcessOverrides() {
     stub.disabled = true;
     Object.defineProperty(proc, name, { configurable: true, writable: true, enumerable: true, value: stub });
   }
-  // IPC accessors throw on access in a worker.
-  for (const name of ["channel", "connected"]) {
-    Object.defineProperty(proc, name, {
-      configurable: true,
-      enumerable: false,
-      get() {
-        throw $ERR_WORKER_UNSUPPORTED_OPERATION(`process.${name} is not supported in workers`);
-      },
-    });
+  // IPC accessors throw on access only in a worker that inherited an IPC channel.
+  if (hasIpc) {
+    for (const name of ["channel", "connected"]) {
+      Object.defineProperty(proc, name, {
+        configurable: true,
+        enumerable: false,
+        get() {
+          throw $ERR_WORKER_UNSUPPORTED_OPERATION(`process.${name} is not supported in workers`);
+        },
+      });
+    }
   }
 }
 
