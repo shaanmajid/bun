@@ -666,7 +666,13 @@ class Worker extends EventEmitter {
 
   get stdin() {
     if (this.#stdinPort === undefined) return null;
-    return (this.#stdin ??= makePortWritable(this.#stdinPort));
+    if (this.#stdin === undefined) {
+      this.#stdin = makePortWritable(this.#stdinPort);
+      // If the worker already exited, destroy immediately so writes fail with
+      // ERR_STREAM_DESTROYED instead of silently no-oping into a closed peer.
+      if (this.#exited) this.#stdin.destroy();
+    }
+    return this.#stdin;
   }
 
   get stdout() {
@@ -759,9 +765,12 @@ class Worker extends EventEmitter {
       if (options.maxBufferSize !== undefined) validateInteger(options.maxBufferSize, "options.maxBufferSize", 1);
       if (options.sampleInterval !== undefined) validateNumber(options.sampleInterval, "options.sampleInterval");
     }
-    return this.#worker.startCpuProfileInternal().then(() => ({
-      stop: () => this.#worker.stopCpuProfileInternal(),
-    }));
+    return this.#worker.startCpuProfileInternal().then(() => {
+      // Cache so a second stop() returns the first call's profile (node caches
+      // on the handle) instead of the canned empty profile.
+      let stopped;
+      return { stop: () => (stopped ??= this.#worker.stopCpuProfileInternal()) };
+    });
   }
 
   cpuUsage(prevValue?: { user: number; system: number }) {
@@ -817,6 +826,12 @@ class Worker extends EventEmitter {
     if (this.#stderr) {
       this.#stderr.endFromOwner();
     }
+    // Tear down the parent-side stdin Writable + port so post-exit writes fail
+    // (ERR_STREAM_DESTROYED) instead of silently no-oping into a closed peer.
+    if (this.#stdin) {
+      this.#stdin.destroy();
+    }
+    this.#stdinPort?.close();
     this.#onExitPromise = e.code;
     this.emit("exit", e.code);
   }
