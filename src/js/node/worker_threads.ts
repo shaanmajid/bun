@@ -894,6 +894,11 @@ class Worker extends EventEmitter {
     if (this.#stderr) {
       this.#stderr.endFromOwner();
     }
+    // Close the captured stdout/stderr control ports so an explicit worker.ref()
+    // on them (which sets m_hasRef) does not pin the parent loop after the worker
+    // exits, mirroring #stdinPort below.
+    this.#stdoutPort?.close();
+    this.#stderrPort?.close();
     // Tear down the parent-side stdin Writable + port so post-exit writes fail
     // (ERR_STREAM_DESTROYED) instead of silently no-oping into a closed peer.
     if (this.#stdin) {
