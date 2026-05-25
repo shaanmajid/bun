@@ -100,8 +100,9 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
             if (port->pipe() == m_pipe.ptr()) {
                 if (port.get() == this)
                     return Exception { DataCloneError, "Transfer list contains source port"_s };
+                // Keep scanning: a later transfer-list entry could be the
+                // source port itself, which must throw regardless of order.
                 targetsEntangledPeer = true;
-                break;
             }
         }
         // Detach every transfer-list port up front -- transfer is atomic in node,
