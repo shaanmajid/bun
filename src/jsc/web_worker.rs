@@ -1122,7 +1122,8 @@ impl WebWorker {
 
         // SAFETY: `promise` is a live JSC heap cell.
         unsafe {
-            if (*promise).status() == jsc::js_promise::Status::Rejected {
+            let status = (*promise).status();
+            if status == jsc::js_promise::Status::Rejected {
                 let handled = vm.as_mut().uncaught_exception(
                     vm.global(),
                     (*promise).result(vm.jsc_vm()),
@@ -1132,6 +1133,15 @@ impl WebWorker {
                     vm.as_mut().exit_handler.exit_code = 1;
                     return self.shutdown();
                 }
+            } else if status == jsc::js_promise::Status::Pending {
+                // Unsettled top-level await: the event loop drained while the
+                // entry module's evaluation promise was still pending. Node
+                // exits the worker with code 13 in this case.
+                if !self.exit_called.load(Ordering::Relaxed) {
+                    vm.as_mut().exit_handler.exit_code = 13;
+                }
+                self.flush_logs(vm);
+                return self.shutdown();
             } else {
                 let _ = (*promise).result(vm.jsc_vm());
             }
