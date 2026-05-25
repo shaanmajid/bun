@@ -465,6 +465,53 @@ function fakeParentPort() {
 }
 let parentPort: MessagePort | null = isMainThread ? null : fakeParentPort();
 
+// In a worker, several process operations are unsupported (node disables them).
+if (!isMainThread) {
+  applyWorkerProcessOverrides();
+}
+function applyWorkerProcessOverrides() {
+  const proc: any = process;
+  // node defaults debugPort to 9229 in workers (and keeps it settable).
+  try {
+    proc.debugPort = 9229;
+  } catch {}
+  // These main-only internals are absent on a worker's process.
+  for (const k of ["_startProfilerIdleNotifier", "_stopProfilerIdleNotifier", "_debugProcess", "_debugEnd"]) {
+    try {
+      delete proc[k];
+    } catch {}
+  }
+  // process.umask(setMask) is unsupported in workers; the getter still works.
+  const realUmask = proc.umask;
+  function umask(mask?: unknown) {
+    if (mask === undefined) return realUmask.$call(proc);
+    throw $ERR_WORKER_UNSUPPORTED_OPERATION("Setting process.umask() is not supported in workers");
+  }
+  proc.umask = umask;
+  // Disabled, throwing stubs (each carries `.disabled === true`, like node).
+  const disabled = ["abort", "chdir", "send", "disconnect"];
+  if (process.platform !== "win32") {
+    disabled.push("setuid", "seteuid", "setgid", "setegid", "setgroups", "initgroups");
+  }
+  for (const name of disabled) {
+    const stub: any = function () {
+      throw $ERR_WORKER_UNSUPPORTED_OPERATION(`process.${name}() is not supported in workers`);
+    };
+    stub.disabled = true;
+    Object.defineProperty(proc, name, { configurable: true, writable: true, enumerable: true, value: stub });
+  }
+  // IPC accessors throw on access in a worker.
+  for (const name of ["channel", "connected"]) {
+    Object.defineProperty(proc, name, {
+      configurable: true,
+      enumerable: false,
+      get() {
+        throw $ERR_WORKER_UNSUPPORTED_OPERATION(`process.${name} is not supported in workers`);
+      },
+    });
+  }
+}
+
 function getEnvironmentData(key: unknown): unknown {
   return environmentData.get(key);
 }
