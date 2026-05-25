@@ -73,6 +73,10 @@ MessagePort::~MessagePort()
 
 ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSValue messageValue, StructuredSerializeOptions&& options)
 {
+    // Own a function-level scope: SerializedScriptValue::create() below leaves a
+    // simulated throw on asan/debug that must be consumed before any nested scope.
+    auto& vm = state.vm();
+    auto warnScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     // Reject an already-detached MessagePort in the transfer list before
     // serialization, so a bad port aborts the post before any ArrayBuffer in
     // the same transfer list is detached (transfer is atomic), matching Node.
@@ -87,6 +91,7 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
     auto messageData = SerializedScriptValue::create(state, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
     if (messageData.hasException())
         return messageData.releaseException();
+    RETURN_IF_EXCEPTION(warnScope, {});
 
     if (!isEntangled())
         return {};
@@ -119,8 +124,6 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
             // throwing. ArrayBuffers and ports in the transfer were already
             // detached above; drop the message and close so the dead channel
             // stops keeping the loop alive.
-            auto& vm = state.vm();
-            auto warnScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
             Bun__Process__emitWarning(defaultGlobalObject(&state),
                 JSC::JSValue::encode(JSC::jsString(vm, String("The target port was posted to itself, and the communication channel was lost"_s))),
                 JSC::JSValue::encode(JSC::jsString(vm, String("Warning"_s))),
