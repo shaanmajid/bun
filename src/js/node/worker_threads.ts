@@ -605,20 +605,20 @@ class Worker extends EventEmitter {
     }
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
-    // With uncaptured stdio, forward the worker's output to the parent's
-    // stdout/stderr. end:false so the worker exiting (which ends worker.stdout)
-    // does not close the parent's stream.
-    // Auto-piped (uncaptured) stdio must not independently keep the parent
-    // alive: the worker's own ref does that, and worker.unref() must let the
-    // parent exit. Forward, but unref these ports so they don't pin the loop.
-    if (this.#stdoutAutoPipe) {
-      this.stdout.pipe(process.stdout, { end: false });
-      this.#stdoutPort.unref();
-    }
-    if (this.#stderrAutoPipe) {
-      this.stderr.pipe(process.stderr, { end: false });
-      this.#stderrPort.unref();
-    }
+      // With uncaptured stdio, forward the worker's output to the parent's
+      // stdout/stderr. end:false so the worker exiting (which ends worker.stdout)
+      // does not close the parent's stream.
+      // Auto-piped (uncaptured) stdio must not independently keep the parent
+      // alive: the worker's own ref does that, and worker.unref() must let the
+      // parent exit. Forward, but unref these ports so they don't pin the loop.
+      if (this.#stdoutAutoPipe) {
+        this.stdout.pipe(process.stdout, { end: false });
+        this.#stdoutPort.unref();
+      }
+      if (this.#stderrAutoPipe) {
+        this.stderr.pipe(process.stderr, { end: false });
+        this.#stderrPort.unref();
+      }
     } catch (e) {
       if (this.#urlToRevoke) {
         URL.revokeObjectURL(this.#urlToRevoke);
