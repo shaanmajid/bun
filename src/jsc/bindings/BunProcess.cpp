@@ -262,6 +262,7 @@ static JSValue constructVersions(VM& vm, JSObject* processObject)
 #undef STRINGIFY
 #undef STRINGIFY_IMPL
 
+    scope.release();
     return object;
 }
 
@@ -2756,6 +2757,7 @@ static JSValue constructProcessChannel(VM& vm, JSObject* processObject)
 
         auto result = JSC::profiledCall(globalObject, ProfilingReason::API, getControl, callData, globalObject->globalThis(), args);
         RETURN_IF_EXCEPTION(scope, {});
+        scope.release();
         return result;
     } else {
         return jsUndefined();
@@ -3941,6 +3943,7 @@ static JSValue constructMainModuleProperty(VM& vm, JSObject* processObject)
     RETURN_IF_EXCEPTION(scope, {});
     JSValue mainModule = requireMap->get(globalObject, mainValue);
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return mainModule;
 }
 
