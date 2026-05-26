@@ -164,7 +164,13 @@ void MessagePort::flushQueuedMessagesBeforeClose()
     if (Zig::GlobalObject::scriptExecutionStatus(globalObject, globalObject) != ScriptExecutionStatus::Running)
         return;
 
-    while (auto message = m_pipe->takeOne(m_side)) {
+    // Cap iterations like drainAndDispatch() so a 'message' handler re-injecting
+    // into this closing port (via its entangled peer) can't starve the loop.
+    size_t limit = std::max<size_t>(MessagePortPipe::queuedCount(m_pipe->state(m_side)), 1000);
+    for (size_t i = 0; i < limit; ++i) {
+        auto message = m_pipe->takeOne(m_side);
+        if (!message)
+            break;
         dispatchOneMessage(*context, WTF::move(*message));
         if (globalObject->drainMicrotasks())
             break; // termination pending
