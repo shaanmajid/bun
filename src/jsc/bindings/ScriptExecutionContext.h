@@ -126,6 +126,14 @@ public:
     ScriptExecutionContextIdentifier identifier() const { return m_identifier; }
 
     bool isWorker = false;
+
+    // Set once when the context is permanently shutting down
+    // (WebWorker__teardownJSCVM). Distinct from VM::hasTerminationRequest(),
+    // which node:vm's {timeout}/{breakOnSigint} also set *transiently* on a
+    // long-lived VM that keeps running afterward.
+    void markTerminating() { m_isTerminating.store(true, std::memory_order_release); }
+    bool isTerminating() const { return m_isTerminating.load(std::memory_order_acquire); }
+
     void setGlobalObject(JSC::JSGlobalObject* globalObject)
     {
         m_globalObject = globalObject;
@@ -135,6 +143,7 @@ public:
     static ScriptExecutionContext* getMainThreadScriptExecutionContext();
 
 private:
+    std::atomic<bool> m_isTerminating { false };
     JSC::VM* m_vm = nullptr;
     JSC::JSGlobalObject* m_globalObject = nullptr;
     WTF::URL m_url = WTF::URL();

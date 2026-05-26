@@ -570,6 +570,10 @@ extern "C" void WebWorker__teardownJSCVM(Zig::GlobalObject* globalObject)
 {
     auto& vm = JSC::getVM(globalObject);
     vm.setHasTerminationRequest();
+    // Mark the context permanently terminating so postTaskTo drops tasks that
+    // can never run (e.g. notifyPeerClosed posted during the final collectNow).
+    if (auto* ctx = globalObject->scriptExecutionContext())
+        ctx->markTerminating();
 
     {
         auto scope = DECLARE_THROW_SCOPE(vm);
