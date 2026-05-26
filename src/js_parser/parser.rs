@@ -1617,7 +1617,9 @@ impl<'a> ParseStatementOptions<'a> {
 pub mod prefill {
     use super::*;
 
-    pub mod hot_module_reloading {}
+    pub mod hot_module_reloading {
+        // TODO(port): mutable static `Expr` arrays — need `static mut` or `LazyLock`.
+    }
 
     pub mod string_literal {
         pub(crate) const CHILDREN: [u8; 8] = *b"children";
