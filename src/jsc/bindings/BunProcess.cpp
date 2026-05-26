@@ -276,6 +276,7 @@ static JSValue constructProcessReleaseObject(VM& vm, JSObject* processObject)
     release->putDirect(vm, Identifier::fromString(vm, "headersUrl"_s), jsOwnedString(vm, String("https://nodejs.org/download/release/v" REPORTED_NODEJS_VERSION "/node-v" REPORTED_NODEJS_VERSION "-headers.tar.gz"_s)), 0);
 
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return release;
 }
 
@@ -2484,6 +2485,7 @@ static JSValue constructProcessReportObject(VM& vm, JSObject* processObject)
     report->putDirect(vm, JSC::Identifier::fromString(vm, "excludeEnv"_s), JSC::jsString(vm, String("SIGUSR2"_s)), 0);
     report->putDirect(vm, JSC::Identifier::fromString(vm, "writeReport"_s), JSC::JSFunction::create(vm, globalObject, 1, String("writeReport"_s), Process_functionWriteReport, ImplementationVisibility::Public), 0);
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return report;
 }
 
@@ -2590,6 +2592,7 @@ static JSValue constructProcessConfigObject(VM& vm, JSObject* processObject)
 
     config->freeze(vm);
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return config;
 }
 
@@ -3799,6 +3802,7 @@ static JSValue Process_stubEmptyArray(VM& vm, JSObject* processObject)
     auto scope = DECLARE_THROW_SCOPE(vm);
     JSC::JSArray* result = JSC::constructEmptyArray(globalObject, nullptr);
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return result;
 }
 
@@ -3808,6 +3812,7 @@ static JSValue Process_stubEmptySet(VM& vm, JSObject* processObject)
     auto scope = DECLARE_THROW_SCOPE(vm);
     JSSet* result = JSSet::create(vm, globalObject->setStructure());
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return result;
 }
 
@@ -4020,6 +4025,7 @@ static JSValue constructFeatures(VM& vm, JSObject* processObject)
     object->putDirect(vm, Identifier::fromString(vm, "typescript"_s), jsString(vm, String("transform"_s)));
 
     RETURN_IF_EXCEPTION(scope, {});
+    scope.release();
     return object;
 }
 
