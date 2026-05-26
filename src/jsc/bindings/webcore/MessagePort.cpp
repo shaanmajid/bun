@@ -89,8 +89,12 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSVa
 
     Vector<RefPtr<MessagePort>> ports;
     auto messageData = SerializedScriptValue::create(state, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
-    if (messageData.hasException())
+    if (messageData.hasException()) {
+        // Satisfy the exception-check verifier for create()'s simulated throw
+        // WITHOUT clearing the pending exception (propagateException needs it).
+        (void)warnScope.exception();
         return messageData.releaseException();
+    }
     RETURN_IF_EXCEPTION(warnScope, {});
 
     if (!isEntangled())
