@@ -1618,7 +1618,7 @@ pub mod prefill {
     use super::*;
 
     pub mod hot_module_reloading {
-        // TODO(port): mutable static `Expr` arrays — need `static mut` or `LazyLock`.
+        // Reserved for the mutable static `Expr` arrays (they need `static mut` or `LazyLock`).
     }
 
     pub mod string_literal {

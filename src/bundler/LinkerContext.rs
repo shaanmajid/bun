@@ -332,8 +332,8 @@ impl<'a> LinkerContext<'a> {
 
     #[inline]
     pub fn check_for_memory_corruption(&self) {
-        // TODO(port): `parse_graph.heap.help_catch_memory_issues()` once
-        // `Graph.heap` is the real `MimallocArena`; no-op for `bumpalo::Bump`.
+        // Becomes `parse_graph.heap.help_catch_memory_issues()` once `Graph.heap`
+        // is the real `MimallocArena`; a no-op while it is `bumpalo::Bump`.
     }
 }
 
