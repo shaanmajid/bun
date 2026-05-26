@@ -794,15 +794,16 @@ class Worker extends EventEmitter {
     // A truthy check would fall through and attach a 'close' listener to an
     // already-closed worker, so the returned promise would never settle.
     if (onExitPromise !== undefined) {
-      // node's terminate() resolves with undefined regardless of exit code.
+      // node: terminate() on an already-exited worker resolves with undefined;
+      // an in-progress terminate (a promise) resolves with the exit code below.
       return $isPromise(onExitPromise) ? onExitPromise : Promise.$resolve(undefined);
     }
 
     const { resolve, promise } = Promise.withResolvers();
     this.#worker.addEventListener(
       "close",
-      () => {
-        resolve(undefined);
+      event => {
+        resolve(event.code);
       },
       { once: true },
     );
