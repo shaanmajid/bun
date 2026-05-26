@@ -1264,13 +1264,6 @@ impl<'a> HTTPClient<'a> {
                 if !x509.is_null() {
                     let hostname = get_tls_hostname(self, allow_proxy_url);
 
-                    // check if we need to report the error (probably to `checkServerIdentity` was informed from JS side)
-                    // this is the slow path
-                    //
-                    // The JS callback only applies to the *target's* certificate
-                    // (Node semantics). For the HTTPS proxy's own handshake, use
-                    // the native SAN check — a pinning callback written for the
-                    // target would reject the proxy's certificate.
                     let is_proxy_certificate = allow_proxy_url && self.http_proxy.is_some();
                     if !is_proxy_certificate && self.signals.get(signals::Field::CertErrors) {
                         // clone the relevant data
@@ -1291,12 +1284,6 @@ impl<'a> HTTPClient<'a> {
                             cert_error,
                         });
 
-                        // Park the connection until the JS-side
-                        // `checkServerIdentity` callback approves this
-                        // certificate (gates `on_writable`/`on_data`; see the
-                        // flag's doc comment). The JS thread resumes via
-                        // `HTTPThread::schedule_cert_check_resume` on success,
-                        // or schedules a shutdown on failure.
                         self.state.flags.is_waiting_for_cert_check = true;
 
                         // we inform the user that the cert is invalid
@@ -3023,10 +3010,6 @@ impl<'a> HTTPClient<'a> {
             return;
         }
 
-        // While parked waiting for the JS `checkServerIdentity` verdict, no
-        // request has been written, so any data is unexpected. Must stay below
-        // the proxy_tunnel dispatch above: a tunneled target's raw inner-TLS
-        // records must keep reaching the SSLWrapper while parked.
         if self.state.flags.is_waiting_for_cert_check {
             self.state.pending_response = None;
             self.close_and_fail::<IS_SSL>(err!(UnexpectedData), socket);
