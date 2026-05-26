@@ -268,12 +268,14 @@ static JSValue constructVersions(VM& vm, JSObject* processObject)
 static JSValue constructProcessReleaseObject(VM& vm, JSObject* processObject)
 {
     auto* globalObject = processObject->globalObject();
+    auto scope = DECLARE_THROW_SCOPE(vm);
     auto* release = JSC::constructEmptyObject(globalObject);
 
     release->putDirect(vm, vm.propertyNames->name, jsOwnedString(vm, String("node"_s)), 0); // maybe this should be 'bun' eventually
     release->putDirect(vm, Identifier::fromString(vm, "sourceUrl"_s), jsOwnedString(vm, WTF::String(std::span { Bun__githubURL, strlen(Bun__githubURL) })), 0);
     release->putDirect(vm, Identifier::fromString(vm, "headersUrl"_s), jsOwnedString(vm, String("https://nodejs.org/download/release/v" REPORTED_NODEJS_VERSION "/node-v" REPORTED_NODEJS_VERSION "-headers.tar.gz"_s)), 0);
 
+    RETURN_IF_EXCEPTION(scope, {});
     return release;
 }
 
@@ -2469,6 +2471,7 @@ static JSValue constructProcessReportObject(VM& vm, JSObject* processObject)
     // auto* globalObject = static_cast<Zig::GlobalObject*>(lexicalGlobalObject);
     auto process = uncheckedDowncast<Process>(processObject);
 
+    auto scope = DECLARE_THROW_SCOPE(vm);
     auto* report = JSC::constructEmptyObject(globalObject, globalObject->objectPrototype(), 10);
     report->putDirect(vm, JSC::Identifier::fromString(vm, "compact"_s), JSC::jsBoolean(false), 0);
     report->putDirect(vm, JSC::Identifier::fromString(vm, "directory"_s), JSC::jsEmptyString(vm), 0);
@@ -2480,6 +2483,7 @@ static JSValue constructProcessReportObject(VM& vm, JSObject* processObject)
     report->putDirect(vm, JSC::Identifier::fromString(vm, "excludeEnv"_s), JSC::jsBoolean(false), 0);
     report->putDirect(vm, JSC::Identifier::fromString(vm, "excludeEnv"_s), JSC::jsString(vm, String("SIGUSR2"_s)), 0);
     report->putDirect(vm, JSC::Identifier::fromString(vm, "writeReport"_s), JSC::JSFunction::create(vm, globalObject, 1, String("writeReport"_s), Process_functionWriteReport, ImplementationVisibility::Public), 0);
+    RETURN_IF_EXCEPTION(scope, {});
     return report;
 }
 
@@ -2509,6 +2513,7 @@ static JSValue constructProcessConfigObject(VM& vm, JSObject* processObject)
     //      v8_use_snapshot: 1
     //    }
     // }
+    auto scope = DECLARE_THROW_SCOPE(vm);
     JSC::JSObject* config = JSC::constructEmptyObject(globalObject, globalObject->objectPrototype(), 2);
     JSC::JSObject* variables = JSC::constructEmptyObject(globalObject, globalObject->objectPrototype(), 2);
     variables->putDirect(vm, JSC::Identifier::fromString(vm, "v8_enable_i8n_support"_s), JSC::jsNumber(1), 0);
@@ -2584,6 +2589,7 @@ static JSValue constructProcessConfigObject(VM& vm, JSObject* processObject)
 #endif
 
     config->freeze(vm);
+    RETURN_IF_EXCEPTION(scope, {});
     return config;
 }
 
@@ -3799,7 +3805,10 @@ static JSValue Process_stubEmptyArray(VM& vm, JSObject* processObject)
 static JSValue Process_stubEmptySet(VM& vm, JSObject* processObject)
 {
     auto* globalObject = processObject->globalObject();
-    return JSSet::create(vm, globalObject->setStructure());
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSSet* result = JSSet::create(vm, globalObject->setStructure());
+    RETURN_IF_EXCEPTION(scope, {});
+    return result;
 }
 
 static JSValue constructMemoryUsage(VM& vm, JSObject* processObject)
@@ -3988,6 +3997,7 @@ static JSValue constructFeatures(VM& vm, JSObject* processObject)
     //     cached_builtins: [Getter]
     // }
     auto* globalObject = processObject->globalObject();
+    auto scope = DECLARE_THROW_SCOPE(vm);
     auto* object = constructEmptyObject(globalObject);
 
     object->putDirect(vm, Identifier::fromString(vm, "inspector"_s), jsBoolean(true));
@@ -4009,6 +4019,7 @@ static JSValue constructFeatures(VM& vm, JSObject* processObject)
     object->putDirect(vm, Identifier::fromString(vm, "require_module"_s), jsBoolean(true));
     object->putDirect(vm, Identifier::fromString(vm, "typescript"_s), jsString(vm, String("transform"_s)));
 
+    RETURN_IF_EXCEPTION(scope, {});
     return object;
 }
 
