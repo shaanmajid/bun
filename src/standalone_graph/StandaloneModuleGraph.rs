@@ -889,7 +889,10 @@ pub(crate) fn to_bytes(
     };
 
     #[cfg(debug_assertions)]
-    {}
+    {
+        // An expensive sanity check:
+        // TODO(port): from_bytes wants &'static mut; debug-only sanity check elided.
+    }
 
     // TODO(port): StringBuilder owns the buffer; return it as Vec<u8>.
     Ok(output_bytes.to_vec())
