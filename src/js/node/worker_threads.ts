@@ -471,9 +471,11 @@ if (!isMainThread) {
 }
 function applyWorkerProcessOverrides() {
   const proc: any = process;
-  // node defaults debugPort to 9229 in workers (and keeps it settable).
+  // node defaults debugPort to 9229 in workers (and keeps it settable). Define a
+  // per-object data property: the static debugPort accessor's setter writes a
+  // process-global, which would clobber the main thread's value cross-worker.
   try {
-    proc.debugPort = 9229;
+    Object.defineProperty(proc, "debugPort", { value: 9229, writable: true, configurable: true, enumerable: true });
   } catch {}
   // These main-only internals are absent on a worker's process.
   for (const k of ["_startProfilerIdleNotifier", "_stopProfilerIdleNotifier", "_debugProcess", "_debugEnd"]) {
