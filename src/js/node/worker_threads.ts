@@ -599,7 +599,11 @@ class Worker extends EventEmitter {
       // node requires the source to be a string when eval is set, rather than
       // letting Blob coerce a URL/object to a confusing SyntaxError later.
       if (typeof filename !== "string")
-        throw $ERR_INVALID_ARG_VALUE("options.eval", options[builtinsGeneratorHatesEval], "must be false when 'filename' is not a string");
+        throw $ERR_INVALID_ARG_VALUE(
+          "options.eval",
+          options[builtinsGeneratorHatesEval],
+          "must be false when 'filename' is not a string",
+        );
       // TODO: consider doing this step in native code and letting the Blob be cleaned up by the
       // C++ Worker object's destructor
       const blob = new Blob([filename], { type: "" });
