@@ -195,9 +195,14 @@ function injectFakeEmitter(Class) {
   const inherited = Object.create(Object.getPrototypeOf(proto));
   // node aliases: prepend* and addListener/removeListener map onto on/once/off.
   const emitterMethods: [string, Function][] = [
-    ["on", on], ["off", off], ["once", once], ["emit", emit],
-    ["prependListener", on], ["prependOnceListener", once],
-    ["addListener", on], ["removeListener", off],
+    ["on", on],
+    ["off", off],
+    ["once", once],
+    ["emit", emit],
+    ["prependListener", on],
+    ["prependOnceListener", once],
+    ["addListener", on],
+    ["removeListener", off],
   ];
   for (const [methodName, value] of emitterMethods) {
     Object.defineProperty(inherited, methodName, { value, writable: true, enumerable: false, configurable: true });
