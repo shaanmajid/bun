@@ -25,10 +25,6 @@ use crate::{
     invalid_package_id,
     resolution::Tag as ResolutionTag,
 };
-// Canonical `Dependency.Version.Tag` — `crate::dependency::Tag` is a duplicate
-// enum (different nominal type) that does not unify with the
-// `bun_install_types::DependencyVersion::tag` field; use the install_types one
-// so assignments at the two `.tag = Workspace` sites type-check.
 use crate::bin_real::ToJsonStyle;
 use crate::config_version::ConfigVersion;
 use crate::extract_tarball as ExtractTarball;
@@ -67,23 +63,12 @@ fn string_array_hash_context(buf: &[u8]) -> bun_semver::string::ArrayHashContext
     }
 }
 
-/// `true` if `url` points at a resource under `registry`: the registry href
-/// (sans trailing slash) must be an exact prefix and the byte after it must be
-/// a path separator, so `https://registry.example.com.evil.com/x.tgz` does not
-/// count as being under a `https://registry.example.com` registry.
 pub(crate) fn url_is_under_registry(url: &[u8], registry: &[u8]) -> bool {
     let registry = strings::without_trailing_slash(registry);
     strings::has_prefix(url, registry)
         && (url.len() == registry.len() || url[registry.len()] == b'/')
 }
 
-// PORT NOTE: reshaped for borrowck. Zig keeps a single `var string_buf =
-// lockfile.stringBuf()` for the whole parser, but in Rust that locks out every
-// other `lockfile.*` access (the `string_buf()` method borrows the whole
-// receiver). Construct a fresh `Buf` at each append site so the disjoint
-// `buffers.string_bytes` / `string_pool` borrows end immediately and the
-// borrow checker can see that catalog/workspace/package mutations touch
-// different fields. Mirrors `src/install/pnpm.rs::sbuf!`.
 macro_rules! sbuf {
     ($lockfile:expr) => {
         StringBuf {
@@ -745,16 +730,6 @@ impl Stringifier {
 
                     // INFO = { prod/dev/optional/peer dependencies, os, cpu, libc (TODO), bin, binDir }
 
-                    // first index is resolution for each type of package
-                    // npm         -> [ "name@version", registry (TODO: remove if default), INFO, integrity]
-                    // symlink     -> [ "name@link:path", INFO ]
-                    // folder      -> [ "name@file:path", INFO ]
-                    // workspace   -> [ "name@workspace:path" ] // workspace is only path
-                    // tarball     -> [ "name@tarball", INFO ]
-                    // root        -> [ "name@root:", { bin, binDir } ]
-                    // git         -> [ "name@git+repo", INFO, .bun-tag string (TODO: remove this) ]
-                    // github      -> [ "name@github:user/repo", INFO, .bun-tag string (TODO: remove this) ]
-
                     match res.tag {
                         ResolutionTag::Root => {
                             write!(
@@ -1036,11 +1011,6 @@ impl Stringifier {
         relative_path: &[u8],
         path_buf: &mut [u8],
     ) -> Result<(), WriteError> {
-        // TODO(port): narrow error set to { OutOfMemory, WriteFailed }
-        // PORT NOTE: Zig `defer optional_peers_buf.clearRetainingCapacity()` moved to fn tail.
-        // Error path (`?` on writer) aborts the whole save in the caller, so skipping the
-        // clear on early-return cannot leak stale entries into a subsequent call.
-
         writer.write_byte(b'{')?;
 
         let mut any = false;
@@ -1137,15 +1107,6 @@ impl Stringifier {
             writer.write_all(b" \"bundled\": true")?;
         }
 
-        // TODO(dylan-conway)
-        // if (meta.libc != .all) {
-        //     try writer.writeAll(
-        //         \\"libc": [
-        //     );
-        //     try Negatable(Npm.Libc).toJson(meta.libc, writer);
-        //     try writer.writeAll("], ");
-        // }
-
         if meta.os != Npm::OperatingSystem::ALL {
             if any {
                 writer.write_byte(b',')?;
@@ -1214,11 +1175,6 @@ impl Stringifier {
         relative_path: &[u8],
         path_buf: &mut [u8],
     ) -> Result<(), WriteError> {
-        // TODO(port): narrow error set to { OutOfMemory, WriteFailed }
-        // PORT NOTE: Zig `defer optional_peers_buf.clearRetainingCapacity()` moved to fn tail.
-        // Error path (`?` on writer) aborts the whole save in the caller, so skipping the
-        // clear on early-return cannot leak stale entries into a subsequent call.
-
         // any - have any properties been written
         let mut any = false;
 
@@ -2144,11 +2100,6 @@ pub fn parse_into_binary_lockfile(
     let mut workspace_pkgs_len: u32 = 0;
 
     if lockfile_version != Version::V0 {
-        // these are the `workspaceOnly` packages
-        // PORT NOTE: snapshot the workspace-path handles up front so the loop
-        // body can take `&mut *lockfile` (`parse_append_dependencies`,
-        // `append_package_dedupe`) without conflicting with the
-        // `workspace_paths.values()` iterator borrow. `String` is `Copy`.
         let workspace_path_snapshot: Vec<String> = lockfile.workspace_paths.values().to_vec();
         'workspaces: for workspace_path in &workspace_path_snapshot {
             for prop in workspaces_obj
@@ -2247,18 +2198,6 @@ pub fn parse_into_binary_lockfile(
             return Err(ParseError::InvalidPackagesObject);
         }
 
-        // find the bundle roots.
-        //
-        // Resolving bundled dependencies:
-        // bun.lock marks package keys with { bundled: true } if they originate
-        // from a bundled dependency. Transitive dependencies of bundled dependencies
-        // will not have a bundled property, and `bun install` expects them to not
-        // have bundled behavior set. In order to resolve these dependencies correctly,
-        // first loop through each key here and add the key to a map if it's bundled.
-        // Then when parsing the dependencies, lookup the package key + dep name from
-        // the bundled map, and mark the dependency bundled if it exists. This works
-        // because package's direct bundled dependencies can only exist at the top
-        // level of it's node_modules.
         for prop in pkgs_expr
             .data
             .e_object()
@@ -2467,22 +2406,6 @@ pub fn parse_into_binary_lockfile(
                                 ));
                             }
 
-                            // found the workspace this key belongs to. for example both `pkg1` and `another-pkg1` should map
-                            // to the same package id:
-                            //
-                            // "workspaces": {
-                            //   "": {},
-                            //   "packages/pkg1": {
-                            //     "name": "pkg1",
-                            //   },
-                            // },
-                            // "overrides": {
-                            //   "some-pkg": "workspace:packages/pkg1",
-                            // },
-                            // "packages": {
-                            //   "pkg1": "workspace:packages/pkg1",
-                            //   "another-pkg1": "workspaces:packages/pkg1",
-                            // },
                             *entry.value_ptr = workspace_pkg_id;
                             continue 'next_pkg_key;
                         }
@@ -2571,10 +2494,6 @@ pub fn parse_into_binary_lockfile(
                                 pkg.meta.arch =
                                     Npm::negatable_from_json::<Npm::Architecture>(&arch)?;
                             }
-                            // TODO(dylan-conway)
-                            // if (os_cpu_libc_obj.get("libc")) |libc| {
-                            //     pkg.meta.libc = Negatable(Npm.Libc).fromJson(allocator, libc);
-                            // }
                         }
                     }
                     ResolutionTag::Root => {
@@ -2623,11 +2542,6 @@ pub fn parse_into_binary_lockfile(
 
                     pkg.meta.integrity = Integrity::parse(integrity_str);
                     if !integrity_str.is_empty() && !pkg.meta.integrity.tag.is_supported() {
-                        // Surface — don't fail — for npm parity (`npm install`
-                        // proceeds on a malformed lockfile integrity, treating
-                        // it as absent). The download path still applies any
-                        // registry-supplied integrity, so this only loses the
-                        // *lockfile* pin.
                         log.add_warning(
                             Some(source),
                             integrity_expr.loc,
@@ -2761,11 +2675,6 @@ pub fn parse_into_binary_lockfile(
         // is chosen (dev -> optional -> prod -> peer)
         let mut seen_deps: bun_collections::StringArrayHashMap<()> = Default::default();
 
-        // PORT NOTE: Zig grabs `pkgs.items(.meta)` / `.items(.resolution)` as
-        // mutable column slices, writes index 0, then keeps the resolution slice
-        // for read-only lookups. In Rust the two `[0]` writes are done first via
-        // sequential `&mut` accessors so the loops can take all column views
-        // immutably without overlapping exclusive borrows or `unsafe`.
         lockfile.packages.items_resolution_mut()[0] =
             Resolution::init(crate::resolution::TaggedValue::Root);
         lockfile.packages.items_meta_mut()[0].origin = Origin::Local;
@@ -2775,10 +2684,6 @@ pub fn parse_into_binary_lockfile(
         let pkg_names = pkgs.items_name();
         let pkg_resolutions: &[Resolution] = pkgs.items_resolution();
 
-        // Disjoint-field split of `lockfile.buffers` so each loop body can hold
-        // `&mut dependencies[i]` and `&mut resolutions[i]` together with a shared
-        // `string_bytes` view (Zig's `*Dependency` / `lockfile.buffers.*.items`
-        // accesses freely alias the same struct).
         let buffers = &mut lockfile.buffers;
         let string_buf: &[u8] = buffers.string_bytes.as_slice();
         let dependencies: &mut [Dependency] = buffers.dependencies.as_mut_slice();
@@ -2973,11 +2878,6 @@ pub fn parse_into_binary_lockfile(
     Ok(())
 }
 
-// PORT NOTE: Zig signature takes `*BinaryLockfile` plus a `*Dependency` that
-// points into `lockfile.buffers.dependencies` — fine in Zig, illegal aliasing in
-// Rust. The function only touches `buffers.resolutions[dep_id]` and reads
-// `text_lockfile_version`, so accept those disjoint pieces directly and let the
-// caller split-borrow `lockfile.buffers`.
 fn map_dep_to_pkg(
     dep: &mut Dependency,
     dep_id: DependencyID,
@@ -3050,12 +2950,6 @@ fn dependency_resolution_failure(
     Ok(())
 }
 
-// PORT NOTE: Zig threaded `string_buf: *String.Buf` separately from `lockfile`.
-// In Rust the `Buf` borrows the same `lockfile.buffers.string_bytes` /
-// `string_pool` fields, so the two parameters alias. The `buf` parameter is
-// dropped and each append constructs a fresh `sbuf!(lockfile)` so the borrow
-// checker can see the disjoint field accesses against `buffers.dependencies`
-// and `workspace_paths`.
 fn parse_append_dependencies<const CHECK_FOR_BUNDLED: bool, const IS_ROOT: bool>(
     lockfile: &mut BinaryLockfile,
     obj: &Expr,

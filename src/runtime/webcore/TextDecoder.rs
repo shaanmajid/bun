@@ -38,10 +38,6 @@ pub struct TextDecoder {
     pub lead_byte: Cell<Option<u8>>,
     pub lead_surrogate: Cell<Option<u16>>,
 
-    // WebKit `PAL::TextCodec` for every other encoding. The codec owns the
-    // streaming state (lead byte, ISO-2022-JP mode, GB18030 first/second/third),
-    // so it must live across `{stream: true}` chunks. Created lazily on first
-    // decode, dropped when a flushing decode ends the stream and in `Drop`.
     codec: Cell<Option<NonNull<TextCodec>>>,
 
     // Read-only after construction (set in `constructor` before the JS wrapper
@@ -424,10 +420,6 @@ impl TextDecoder {
             _ => {
                 let encoding_name = EncodingLabel::get_label(self.encoding);
 
-                // The codec carries streaming state (lead bytes, escape mode),
-                // so reuse the one from the previous `{stream: true}` chunk.
-                // Create it lazily on first use — matches WebKit's
-                // `if (!m_codec) m_codec = newTextCodec(...)`.
                 let codec_ptr = match self.codec.get() {
                     Some(ptr) => ptr,
                     None => {
@@ -456,11 +448,6 @@ impl TextDecoder {
                 // so it derefs on scope exit (matches Zig `defer result.result.deref()`).
                 let result_str = OwnedString::new(result.result);
 
-                // A flushing decode ends the stream. Per WHATWG Encoding the
-                // next `decode()` starts with a fresh decoder, so drop this
-                // codec now — otherwise mode state that the C++ codec does not
-                // reset on flush (e.g. `m_iso2022JPDecoderState`) would leak
-                // into the next stream.
                 if FLUSH {
                     self.codec.set(None);
                     // SAFETY: `codec_ptr` came from `TextCodec::create` above
