@@ -287,6 +287,14 @@ TransferredMessagePort MessagePort::disentangle()
         deref();
     }
 
+    // A transferred port is inert; clear the message-listener keepalive too so
+    // hasRef() reports false, matching Node's HandleWrap::HasRef() gating on
+    // IsAlive() (the disentangle analogue of the close() reset above).
+    if (m_isRefd) {
+        m_isRefd = false;
+        updateListenerEventLoopRef();
+    }
+
     // Hand the pipe endpoint to its next owner. Messages that arrive while
     // in transit buffer in the pipe; the receiving context's entangle()
     // re-attaches and flushes them. We keep our own ref to the pipe so the

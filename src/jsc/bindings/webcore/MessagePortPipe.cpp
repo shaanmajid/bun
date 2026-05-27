@@ -170,6 +170,16 @@ void MessagePortPipe::drainAndDispatch(uint8_t side, ScriptExecutionContextIdent
         // queueMicrotask(cb) inside onmessage runs before the next message.
         if (globalObject->drainMicrotasks())
             break; // termination pending
+
+        // A handler may have removed all 'message' listeners mid-drain
+        // (port.off('message', ...)); pause like the pre-loop check rather than
+        // dispatching the remaining buffered messages to zero listeners (which
+        // would silently drop them). A later addEventListener re-schedules.
+        if (!port->hasMessageEventListener()) {
+            Locker locker { s.lock };
+            s.state.fetch_and(~uint64_t(DrainScheduled), std::memory_order_acq_rel);
+            break;
+        }
     }
 
     if (rescheduleCtx)
