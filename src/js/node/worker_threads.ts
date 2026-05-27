@@ -590,8 +590,12 @@ class Worker extends EventEmitter {
           options[builtinsGeneratorHatesEval],
           "must be false when 'filename' is not a string",
         );
-      // TODO: consider doing this step in native code and letting the Blob be cleaned up by the
-      // C++ Worker object's destructor
+      // eval: wrap the source string in a blob: URL the worker imports as its
+      // entry point. Done in JS for now; a native path could instead build the
+      // Blob and tie its lifetime to the C++ Worker's destructor. The URL must
+      // stay valid for the worker's lifetime, so it is revoked on the
+      // constructor's failure path (catch below), when the worker exits
+      // (#onClose), and via urlRevokeRegistry as a GC safety net.
       const blob = new Blob([filename], { type: "" });
       this.#urlToRevoke = filename = URL.createObjectURL(blob);
     } else {
