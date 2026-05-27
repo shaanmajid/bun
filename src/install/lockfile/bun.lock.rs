@@ -14,6 +14,13 @@ use bun_semver::semver_string::{
 };
 use bun_semver::{self as Semver, ExternalString, String};
 
+use crate::bin_real::ToJsonStyle;
+use crate::config_version::ConfigVersion;
+use crate::extract_tarball as ExtractTarball;
+use crate::integrity::Integrity;
+use crate::npm::Negatable;
+use crate::package_manager_real::Options as PackageManagerOptions;
+use crate::repository::RepositoryExt as _;
 use crate::{
     DependencyID, Npm, Origin, PackageID, PackageManager, PackageNameHash, Repository, Resolution,
     TruncatedPackageNameHash,
@@ -25,13 +32,6 @@ use crate::{
     invalid_package_id,
     resolution::Tag as ResolutionTag,
 };
-use crate::bin_real::ToJsonStyle;
-use crate::config_version::ConfigVersion;
-use crate::extract_tarball as ExtractTarball;
-use crate::integrity::Integrity;
-use crate::npm::Negatable;
-use crate::package_manager_real::Options as PackageManagerOptions;
-use crate::repository::RepositoryExt as _;
 use bun_install_types::DependencyVersionTag;
 // PORT NOTE: this file is `crate::lockfile_real::bun_lock`; `super` is the
 // real `Lockfile` module, distinct from the `crate::lockfile` stub.

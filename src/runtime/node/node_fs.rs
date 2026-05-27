@@ -4411,9 +4411,7 @@ pub mod ret {
                     }
                     Ok(array)
                 }
-                Readdir::Files(items) => {
-                    JSValue::from_any(global_object, items)
-                }
+                Readdir::Files(items) => JSValue::from_any(global_object, items),
             }
         }
     }

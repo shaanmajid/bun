@@ -246,7 +246,6 @@ pub struct PendingValue {
     pub promise: Option<JSValue>,
     pub readable: webcore::readable_stream::Strong,
     // writable: webcore::Sink
-
     pub global: *const JSGlobalObject,
     pub task: Option<*mut c_void>,
 
