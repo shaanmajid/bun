@@ -2577,6 +2577,7 @@ pub mod formatter {
                             }
 
                             PercentTag::O | PercentTag::UpperO => {
+                                if token == PercentTag::O {}
                                 self.format::<ENABLE_ANSI_COLORS>(
                                     Tag::get(next_value, global)?,
                                     writer_,

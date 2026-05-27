@@ -4057,8 +4057,9 @@ impl<'a> Resolver<'a> {
             if queue_slice_len == 0 {
                 // SAFETY: `dir_info_ptr` is the BSSMap slot just filled by `dir_info_uncached`.
                 return Ok(Some(unsafe { DirInfoRef::from_raw(dir_info_ptr) }));
-            } else if queue_slice_len == 1 {
+
                 // Is the directory we're searching for actually a file?
+            } else if queue_slice_len == 1 {
             }
         }
 
@@ -5795,6 +5796,7 @@ impl<'a> Resolver<'a> {
                             mc.paths = core::mem::take(&mut parent_config.paths);
                             mc.base_url_for_paths =
                                 core::mem::take(&mut parent_config.base_url_for_paths);
+                        } else {
                         }
                         // Every scalar/reference we need has been copied into merged_config
                         // (strings live in dirname_store or default_allocator and outlive the
