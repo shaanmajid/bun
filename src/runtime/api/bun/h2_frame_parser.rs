@@ -1772,6 +1772,7 @@ impl Stream {
                                 );
                             }
                             buffer[0] = padding;
+                            buffer[1 + able_to_send.len()..payload_size].fill(0);
                             writer.write_all(&buffer[0..payload_size]).is_ok()
                         });
                     } else {
@@ -1829,6 +1830,7 @@ impl Stream {
                                 );
                             }
                             buffer[0] = padding;
+                            buffer[1 + frame_slice.len()..payload_size].fill(0);
                             writer.write_all(&buffer[0..payload_size]).is_ok()
                         });
                     } else {
@@ -5889,6 +5891,7 @@ impl H2FrameParser {
                                 );
                             }
                             buffer[0] = padding;
+                            buffer[1 + slice.len()..payload_size].fill(0);
                             let _ = writer.write_all(&buffer[0..payload_size]);
                         });
                     } else {
