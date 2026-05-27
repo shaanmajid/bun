@@ -4057,9 +4057,8 @@ impl<'a> Resolver<'a> {
             if queue_slice_len == 0 {
                 // SAFETY: `dir_info_ptr` is the BSSMap slot just filled by `dir_info_uncached`.
                 return Ok(Some(unsafe { DirInfoRef::from_raw(dir_info_ptr) }));
-
-                // Is the directory we're searching for actually a file?
             } else if queue_slice_len == 1 {
+                // Is the directory we're searching for actually a file?
             }
         }
 

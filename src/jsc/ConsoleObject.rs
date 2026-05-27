@@ -2577,7 +2577,9 @@ pub mod formatter {
                             }
 
                             PercentTag::O | PercentTag::UpperO => {
-                                if token == PercentTag::O {}
+                                if token == PercentTag::O {
+                                    // %o would apply node's extra formatter options (max depth, hidden, proxy); not yet implemented.
+                                }
                                 self.format::<ENABLE_ANSI_COLORS>(
                                     Tag::get(next_value, global)?,
                                     writer_,
