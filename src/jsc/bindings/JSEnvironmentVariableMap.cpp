@@ -502,6 +502,19 @@ bool JSSharedEnvMap::getOwnPropertySlot(JSObject* object, JSGlobalObject* global
 // string map; it does not touch the native TZ/TLS/verbose caches or the Zig
 // env map that fetch()'s proxy resolution reads, so without this a worker that
 // swapped process.env to the shared store would silently drop those effects.
+// Proxy-related env vars whose value must be written back to the Zig env map so
+// fetch()'s getHttpProxyFor() observes runtime changes. Shared by the SHARE_ENV
+// write-through path (applySharedEnvSideEffects) and the snapshot builder
+// (createEnvironmentVariablesMap).
+static constexpr ASCIILiteral kProxyEnvVarNames[] = {
+    "HTTP_PROXY"_s,
+    "http_proxy"_s,
+    "HTTPS_PROXY"_s,
+    "https_proxy"_s,
+    "NO_PROXY"_s,
+    "no_proxy"_s,
+};
+
 static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String& rawKey, const String& stringValue)
 {
     VM& vm = JSC::getVM(globalObject);
@@ -526,14 +539,7 @@ static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String
         return;
     }
     // Proxy vars: fetch()'s getHttpProxyFor() reads the Zig env map, so sync.
-    static constexpr ASCIILiteral proxyVarNames[] = {
-        "HTTP_PROXY"_s,
-        "http_proxy"_s,
-        "HTTPS_PROXY"_s,
-        "https_proxy"_s,
-        "NO_PROXY"_s,
-        "no_proxy"_s,
-    };
+    const auto& proxyVarNames = kProxyEnvVarNames;
     for (auto proxyName : proxyVarNames) {
         if (key == proxyName) {
             BunString name = Bun::toString(key);
@@ -654,7 +660,7 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
     }
 
     // Swap this global's process.env to the shared, write-through variant.
-    auto* shared = JSSharedEnvMap::create(vm, JSSharedEnvMap::createStructure(vm, globalObject, globalObject->objectPrototype()));
+    auto* shared = createSharedEnvironmentVariablesMap(globalObject).getObject();
     globalObject->m_processEnvObject.set(vm, globalObject, shared);
 
     // `process.env` is exposed as a cached lazy property on the process object;
@@ -694,14 +700,7 @@ JSValue createEnvironmentVariablesMap(Zig::GlobalObject* globalObject)
 
     // Proxy-related env vars need write-back to the Zig env map so that
     // fetch()'s getHttpProxyFor() observes runtime changes.
-    static constexpr ASCIILiteral proxyVarNames[] = {
-        "HTTP_PROXY"_s,
-        "http_proxy"_s,
-        "HTTPS_PROXY"_s,
-        "https_proxy"_s,
-        "NO_PROXY"_s,
-        "no_proxy"_s,
-    };
+    const auto& proxyVarNames = kProxyEnvVarNames;
     constexpr size_t proxyVarCount = std::size(proxyVarNames);
     bool hasProxyVar[proxyVarCount] = {};
 

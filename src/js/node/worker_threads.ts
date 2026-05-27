@@ -193,34 +193,15 @@ function injectFakeEmitter(Class) {
   // Object.getOwnPropertyNames(MessagePort.prototype) matches node.
   const proto = Class.prototype;
   const inherited = Object.create(Object.getPrototypeOf(proto));
-  Object.defineProperty(inherited, "on", { value: on, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "off", { value: off, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "once", { value: once, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "emit", { value: emit, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "prependListener", {
-    value: on,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
-  Object.defineProperty(inherited, "prependOnceListener", {
-    value: once,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
-  Object.defineProperty(inherited, "addListener", {
-    value: on,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
-  Object.defineProperty(inherited, "removeListener", {
-    value: off,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
+  // node aliases: prepend* and addListener/removeListener map onto on/once/off.
+  const emitterMethods: [string, Function][] = [
+    ["on", on], ["off", off], ["once", once], ["emit", emit],
+    ["prependListener", on], ["prependOnceListener", once],
+    ["addListener", on], ["removeListener", off],
+  ];
+  for (const [methodName, value] of emitterMethods) {
+    Object.defineProperty(inherited, methodName, { value, writable: true, enumerable: false, configurable: true });
+  }
   Object.setPrototypeOf(proto, inherited);
 }
 
@@ -665,9 +646,9 @@ class Worker extends EventEmitter {
     // the parent. Convert it to a native-visible boolean flag so it doesn't hit
     // the object-validation throw in the native Worker constructor, and so the
     // native side skips the env snapshot and wires up the shared store.
-    if (options && (options as any).env === SHARE_ENV) {
+    if ((options as any).env === SHARE_ENV) {
       options = { ...options, env: undefined, shareEnv: true } as NodeWorkerOptions;
-    } else if (options && (options as any).shareEnv !== undefined) {
+    } else if ((options as any).shareEnv !== undefined) {
       // shareEnv is internal — only `env: SHARE_ENV` may enable it. Strip a
       // user-supplied value so it can't trigger env sharing on its own.
       options = { ...options, shareEnv: undefined } as NodeWorkerOptions;

@@ -116,7 +116,9 @@ function sendMessageToWorker(source, destination, value, transferList, memory) {
     {
       type: messageTypes.RECEIVE_MESSAGE_FROM_WORKER,
       source,
-      destination,
+      // destination is intentionally omitted: the receiver routes by port, not
+      // by re-reading it, so it would be clone-serialized on every message for
+      // nothing.
       value,
       memory,
     },
