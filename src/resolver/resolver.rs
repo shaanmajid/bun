@@ -5797,6 +5797,7 @@ impl<'a> Resolver<'a> {
                             mc.base_url_for_paths =
                                 core::mem::take(&mut parent_config.base_url_for_paths);
                         } else {
+                            // No paths to move; parent_config still owns them (Drop frees).
                         }
                         // Every scalar/reference we need has been copied into merged_config
                         // (strings live in dirname_store or default_allocator and outlive the
