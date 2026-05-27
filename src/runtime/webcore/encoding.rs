@@ -437,14 +437,6 @@ pub(crate) fn to_bun_string_comptime<const ENCODING: u8>(input: &[u8]) -> BunStr
     }
 }
 
-/// Base64/base64url-encode `input` into a new Latin-1 `BunString`.
-///
-/// Small outputs are encoded straight into an uninitialized WTF string (one
-/// allocation, no finalizer). Large outputs are encoded into a mimalloc-backed
-/// buffer wrapped in an external WTF string, because cycling large blocks
-/// through WTF's string allocator on every call is measurably more expensive
-/// than letting mimalloc reuse them (this mirrors the original Zig
-/// implementation of `Buffer.toString("base64")`).
 fn encode_base64_to_bun_string(input: &[u8], url_safe: bool) -> BunString {
     // Output size above which the external-string strategy is used.
     const EXTERNAL_MIN_LEN: usize = 32 * 1024;
@@ -788,11 +780,6 @@ pub(crate) unsafe fn construct_from_u8<const ENCODING: u8>(
 
             let is_urlsafe = matches!(encoding_from_u8(ENCODING), Encoding::Base64url);
             let outlen = bun_base64::decode_lenient_len(slice.len());
-            // Decode into uninitialized spare capacity: the decoder only ever
-            // writes to the destination, and only the `wrote` bytes it
-            // initialized are committed below. This buffer becomes the
-            // Buffer's storage, so a zero-fill would be pure overhead for
-            // large inputs.
             let mut to: Vec<u8> = Vec::new();
             // SAFETY: the returned spare bytes are write-only until committed.
             let dest = unsafe { bun_core::vec::reserve_spare_bytes(&mut to, outlen) };
@@ -846,10 +833,6 @@ pub(crate) unsafe fn construct_from_u16<const ENCODING: u8>(
         }
 
         Encoding::Base64 | Encoding::Base64url => {
-            // Match Node.js: two-byte strings are decoded from the low byte of
-            // each UTF-16 code unit (so e.g. U+013D behaves like '=' and
-            // U+1234 like '4'), the same narrowing Node's lenient fallback
-            // decoder applies.
             let mut narrowed = vec![0u8; len];
             strings::copy_u16_into_u8(&mut narrowed, input_slice);
             // SAFETY: `narrowed` is a valid local Vec.

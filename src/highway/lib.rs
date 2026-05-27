@@ -131,12 +131,6 @@ pub fn index_of_interesting_character_in_string_literal(
     Some(result)
 }
 
-/// Useful for scanning the body of `/* ... */` block comments.
-/// Scans for:
-/// - `*` (potential `*/` terminator)
-/// - `\n`, `\r`
-/// - Non-ASCII characters (so the caller decodes U+2028/U+2029 and other
-///   multi-byte sequences one code point at a time)
 #[inline(always)]
 pub fn index_of_interesting_character_in_multiline_comment(slice: &[u8]) -> Option<usize> {
     if slice.is_empty() {
@@ -322,10 +316,6 @@ pub fn encode_hex_lower(src: &[u8], dst: &mut [u8]) {
     unsafe { highway_encode_hex_lower(src.as_ptr(), src.len(), dst.as_mut_ptr()) }
 }
 
-/// Decode pairs of ASCII hex digits from `src` into bytes in `dst`, stopping at
-/// the first pair that contains a non-hex character. Returns the number of
-/// bytes written (`min(src.len() / 2, dst.len())` when the input is fully
-/// valid). A trailing lone hex digit is ignored.
 #[inline(always)]
 pub fn decode_hex(src: &[u8], dst: &mut [u8]) -> usize {
     let pairs = (src.len() / 2).min(dst.len());

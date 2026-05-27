@@ -820,11 +820,6 @@ pub mod base64 {
         }
     }
 
-    /// Lenient decode matching Node.js `Buffer` semantics
-    /// (`simdutf::base64_default_or_url_accept_garbage` + loose last chunk):
-    /// accepts both the standard and URL-safe alphabets, skips whitespace and
-    /// any other non-alphabet characters, and stops at the first `'='`.
-    /// On success, `count` is the number of bytes written to `output`.
     pub fn decode_lenient(input: &[u8], output: &mut [u8]) -> SIMDUTFResult {
         // SAFETY: input/output are valid slices; FFI honors outlen bound.
         unsafe {
