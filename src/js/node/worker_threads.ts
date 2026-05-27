@@ -596,6 +596,10 @@ class Worker extends EventEmitter {
 
     const builtinsGeneratorHatesEval = "ev" + "a" + "l"[0];
     if (options[builtinsGeneratorHatesEval]) {
+      // node requires the source to be a string when eval is set, rather than
+      // letting Blob coerce a URL/object to a confusing SyntaxError later.
+      if (typeof filename !== "string")
+        throw $ERR_INVALID_ARG_VALUE("options.eval", options[builtinsGeneratorHatesEval], "must be false when 'filename' is not a string");
       // TODO: consider doing this step in native code and letting the Blob be cleaned up by the
       // C++ Worker object's destructor
       const blob = new Blob([filename], { type: "" });
@@ -885,6 +889,12 @@ class Worker extends EventEmitter {
 
   #onClose(e) {
     this.#exited = true;
+    // Revoke the eval blob: URL now that the worker has exited; the
+    // FinalizationRegistry remains only as a GC safety net.
+    if (this.#urlToRevoke) {
+      URL.revokeObjectURL(this.#urlToRevoke);
+      this.#urlToRevoke = "";
+    }
     if (this.#messagingThreadId !== undefined) {
       messaging.destroyMainThreadPort(this.#messagingThreadId);
       this.#messagingThreadId = undefined;

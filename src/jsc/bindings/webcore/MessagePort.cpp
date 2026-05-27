@@ -220,6 +220,15 @@ void MessagePort::close()
             context->unrefEventLoop();
         deref();
     }
+
+    // close() can run without a preceding jsUnref() (e.g. the targetsEntangledPeer
+    // warn-and-close path, or contextDestroyed()). Clear the message-listener
+    // keepalive too so a later listener add can't re-acquire a loop-ref that
+    // nothing will release.
+    if (m_isRefd) {
+        m_isRefd = false;
+        updateListenerEventLoopRef();
+    }
 }
 
 void MessagePort::dispatchCloseEvent()

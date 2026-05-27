@@ -112,7 +112,7 @@ public:
 
     void jsRef(JSGlobalObject*);
     void jsUnref(JSGlobalObject*);
-    bool jsHasRef() { return m_hasRef; }
+    bool jsHasRef() { return m_isRefd; }
 
 private:
     MessagePort(ScriptExecutionContext&, Ref<MessagePortPipe>&&, uint8_t side);
