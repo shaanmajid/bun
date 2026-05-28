@@ -1270,23 +1270,36 @@ pub(crate) fn spawn_maybe_sync<const IS_SYNC: bool>(
         NonNull::new(subprocess_ptr.cast()).expect("Box::into_raw returned null");
 
     // Address-dependent fields, filled now that `subprocess` has a stable address.
+    //
+    // `owner` is this freshly-boxed subprocess (stable address) and
+    // `on_max_buffer_overflow` casts it back to `Subprocess<'static>`. The
+    // subprocess owns both maxbuf slots and clears them (via
+    // `remove_from_subprocess`) on finalize / spawn error / overflow, so the
+    // back-pointer passed below never outlives the subprocess.
     {
         let owner = subprocess_nn.cast::<()>();
         let mut mb = None;
-        MaxBuf::create_for_subprocess(
-            owner,
-            SubprocessT::on_max_buffer_overflow,
-            &mut mb,
-            max_buffer,
-        );
+        // SAFETY: `owner`/`on_max_buffer_overflow` pairing is valid for the
+        // subprocess's lifetime — see the note above.
+        unsafe {
+            MaxBuf::create_for_subprocess(
+                owner,
+                SubprocessT::on_max_buffer_overflow,
+                &mut mb,
+                max_buffer,
+            );
+        }
         subprocess.stderr_maxbuf.set(mb);
         let mut mb = None;
-        MaxBuf::create_for_subprocess(
-            owner,
-            SubprocessT::on_max_buffer_overflow,
-            &mut mb,
-            max_buffer,
-        );
+        // SAFETY: same as the stderr slot above.
+        unsafe {
+            MaxBuf::create_for_subprocess(
+                owner,
+                SubprocessT::on_max_buffer_overflow,
+                &mut mb,
+                max_buffer,
+            );
+        }
         subprocess.stdout_maxbuf.set(mb);
     }
 

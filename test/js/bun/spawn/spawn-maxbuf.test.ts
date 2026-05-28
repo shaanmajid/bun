@@ -70,10 +70,10 @@ describe("maxBuffer kills the child when stdout/stderr is read as a stream", () 
     });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
-    expect(proc.signalCode).toBe("SIGTERM");
-    expect(proc.exitCode).toBe(null);
     expect(text.length).toBeGreaterThan(0);
     expect(text.length).toBeLessThan(1_000_000);
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
   });
 
   test.concurrent("proc.stdout.text()", async () => {
@@ -83,10 +83,10 @@ describe("maxBuffer kills the child when stdout/stderr is read as a stream", () 
     });
     const text = await proc.stdout.text();
     await proc.exited;
-    expect(proc.signalCode).toBe("SIGTERM");
-    expect(proc.exitCode).toBe(null);
     expect(text.length).toBeGreaterThan(0);
     expect(text.length).toBeLessThan(1_000_000);
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
   });
 
   test.concurrent("new Response(proc.stderr).text()", async () => {
@@ -96,10 +96,10 @@ describe("maxBuffer kills the child when stdout/stderr is read as a stream", () 
     });
     const text = await new Response(proc.stderr).text();
     await proc.exited;
-    expect(proc.signalCode).toBe("SIGTERM");
-    expect(proc.exitCode).toBe(null);
     expect(text.length).toBeGreaterThan(0);
     expect(text.length).toBeLessThan(1_000_000);
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
   });
 
   test.concurrent("under-limit streaming read returns full output", async () => {

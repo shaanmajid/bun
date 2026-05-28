@@ -15,8 +15,10 @@ pub struct MaxBuf {
     /// finalize. Erased because `Subprocess` lives in `bun_runtime` (a downstream
     /// crate); the pairing with `on_overflow` recovers the concrete type. The
     /// `Subprocess` owns this `MaxBuf` (via `stdout_maxbuf`/`stderr_maxbuf`), so
-    /// the back-pointer is sound while `Some`.
-    pub owned_by_subprocess: Cell<Option<NonNull<()>>>,
+    /// the back-pointer is sound while `Some`. Private and only ever populated by
+    /// the `unsafe` `create_for_subprocess`, so safe code cannot forge the value
+    /// `on_read_bytes` later dispatches `on_overflow` on.
+    owned_by_subprocess: Cell<Option<NonNull<()>>>,
     /// Dispatches `Subprocess::on_max_buffer(kind)` on `owned_by_subprocess`.
     /// Receives this `MaxBuf` so the callee can compare against the subprocess's
     /// `stdout_maxbuf`/`stderr_maxbuf` slots to recover the stream kind, then
@@ -51,7 +53,14 @@ impl MaxBuf {
         unsafe { this.as_ref() }
     }
 
-    pub fn create_for_subprocess(
+    /// # Safety
+    /// `on_overflow` must be callable with `owner` as its first argument for as
+    /// long as the created `MaxBuf` holds the subprocess slot — i.e. `owner` must
+    /// stay live until `remove_from_subprocess` clears it (on finalize, spawn
+    /// error, or overflow). `on_read_bytes` invokes `on_overflow(owner, ..)` from
+    /// a safe context, so a mismatched pair or a dangling `owner` is UB; this
+    /// cannot be checked here, hence `unsafe`.
+    pub unsafe fn create_for_subprocess(
         owner: NonNull<()>,
         on_overflow: unsafe fn(NonNull<()>, NonNull<MaxBuf>),
         ptr: &mut Option<NonNull<MaxBuf>>,
