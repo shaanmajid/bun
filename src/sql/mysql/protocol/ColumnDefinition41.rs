@@ -99,6 +99,17 @@ impl ColumnDefinition41 {
             BStr::new(self.schema.slice())
         );
 
+        // `changed` tracks whether any field surfaced in `result.columns`
+        // (name, table, type, length, flags) differs from this slot's previous
+        // contents. Column definitions are re-decoded into the same slot on
+        // every COM_STMT_EXECUTE / result set, and the connection uses this to
+        // invalidate the statement's cached structure / `{ string, columns }`
+        // object only when the definition actually changed — e.g. a prepared
+        // CALL returning equal-width result sets whose columns share a name but
+        // differ in type (`SELECT 1 AS x; SELECT 'hi' AS x`) — instead of on
+        // every execution (test/regression/issue/28632).
+        let mut changed = false;
+
         // `name` and `table` are surfaced to JS by `JSMySQLQuery::build_statement_js`
         // when the query's final OK/EOF packet arrives, which may be many on_data()
         // calls after decode.
@@ -114,6 +125,7 @@ impl ColumnDefinition41 {
         let table = reader.encode_len_string()?;
         if self.table.slice() != table.slice() {
             self.table = Data::create(table.slice())?;
+            changed = true;
         }
         bun_core::scoped_log!(
             ColumnDefinition41,
@@ -143,7 +155,9 @@ impl ColumnDefinition41 {
 
         self.fixed_length_fields_length = reader.encoded_len_int()?;
         self.character_set = reader.int::<u16>()?;
-        self.column_length = reader.int::<u32>()?;
+        let column_length = reader.int::<u32>()?;
+        changed |= column_length != self.column_length;
+        self.column_length = column_length;
         // PORT NOTE: Zig FieldType is a NON-exhaustive `enum(u8)` so `@enumFromInt` accepts
         // any byte. Rust `#[repr(u8)] enum` is exhaustive, so unknown bytes go through
         // `from_raw`'s match and error here instead. This diverges from Zig (which keeps
@@ -152,9 +166,13 @@ impl ColumnDefinition41 {
         // `#[repr(transparent)] struct(u8)` newtype to match Zig's non-exhaustive
         // semantics exactly.
         let type_byte = reader.int::<u8>()?;
-        self.column_type = FieldType::from_raw(type_byte)
+        let column_type = FieldType::from_raw(type_byte)
             .ok_or_else(|| bun_core::err!("UnknownMySQLFieldType"))?;
-        self.flags = ColumnFlags::from_int(reader.int::<u16>()?);
+        changed |= column_type != self.column_type;
+        self.column_type = column_type;
+        let flags = ColumnFlags::from_int(reader.int::<u16>()?);
+        changed |= flags != self.flags;
+        self.flags = flags;
         self.decimals = reader.int::<u8>()?;
 
         // PORT NOTE: Zig called `name_or_index.deinit()` before reassigning; in Rust the
@@ -173,11 +191,10 @@ impl ColumnDefinition41 {
         // ASAN quarantine (test/regression/issue/28632).
         let unchanged = matches!(&self.name_or_index,
             ColumnIdentifier::Name(existing) if existing.slice() == self.name.slice());
-        let mut changed = false;
         if !unchanged {
             let name_view = Data::Temporary(bun_ptr::RawSlice::new(self.name.slice()));
             let rebuilt = ColumnIdentifier::init(name_view)?;
-            changed = match (&self.name_or_index, &rebuilt) {
+            changed |= match (&self.name_or_index, &rebuilt) {
                 (ColumnIdentifier::Index(prev), ColumnIdentifier::Index(curr)) => prev != curr,
                 _ => true,
             };

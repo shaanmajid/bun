@@ -207,6 +207,32 @@ if (isDockerEnabled()) {
             expect(r2.columns).toBe(r1.columns);
           });
 
+          test("prepared CALL with same-name different-type result sets reports per-set types", async () => {
+            // A prepared multi-result-set response (statement_id > 0) re-decodes
+            // column definitions into the same slots. When consecutive equal-width
+            // result sets share a column name but differ in type, the cached
+            // `{ string, columns }` metadata must still be invalidated — change
+            // detection keys on type/length/flags, not just the name, so
+            // results[1].columns[0].type must not report results[0]'s type.
+            await using db = new SQL({ ...getOptions(), max: 1 });
+            using sql = await db.reserve();
+            const proc = "p_26809_" + randomUUIDv7("hex").replaceAll("-", "");
+            await sql.unsafe(
+              `CREATE PROCEDURE ${proc}() BEGIN SELECT CAST(1 AS SIGNED) AS value; SELECT CAST('hi' AS CHAR) AS value; END`,
+            );
+            try {
+              const results = await sql`CALL ${sql(proc)}()`;
+              // MySQL appends a trailing OK result set to CALL; the two SELECTs
+              // are the first two entries.
+              expect(results[0].columns[0].name).toBe("value");
+              expect(results[1].columns[0].name).toBe("value");
+              expect(results[0].columns[0].type).toBe(8); // MYSQL_TYPE_LONGLONG
+              expect(results[1].columns[0].type).toBe(253); // MYSQL_TYPE_VAR_STRING
+            } finally {
+              await sql.unsafe(`DROP PROCEDURE IF EXISTS ${proc}`);
+            }
+          });
+
           test("multi-statement simple() with equal column counts gets per-result-set columns", async () => {
             // Consecutive result sets with the same column count re-decode into the
             // same ColumnDefinition41 slots; the cached statement metadata must be
