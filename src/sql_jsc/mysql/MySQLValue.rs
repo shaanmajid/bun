@@ -597,7 +597,10 @@ impl DateTime {
     }
 
     pub fn to_js_timestamp(&self, global_object: &JSGlobalObject) -> JsResult<f64> {
-        global_object.gregorian_date_time_to_ms(
+        // from_unix_timestamp() breaks a Date's UTC epoch into Y/M/D h:m:s with
+        // pure-UTC arithmetic, so decode must also treat the stored wall-clock
+        // as UTC — otherwise a Date round-trips shifted by the local UTC offset.
+        global_object.gregorian_date_time_to_ms_utc(
             i32::from(self.year),
             i32::from(self.month),
             i32::from(self.day),
