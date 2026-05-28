@@ -300,6 +300,16 @@ bun_io::impl_buffered_reader_parent! {
         #[cfg(not(windows))] { ev.r#loop() }
     };
     event_loop = |this| (&*this).event_loop.get().as_event_loop_ctx();
+    // A subprocess stdout/stderr pipe keeps its `MaxBuf` when it's converted to
+    // a `ReadableStream` (the `BufferedReader` is transferred to this
+    // `FileReader`). The `MaxBuf` carries its own subprocess back-pointer, so
+    // the overflow kill stays reachable even though a `FileReader` has no
+    // subprocess field of its own.
+    on_max_buffer_overflow = |_this, maxbuf| {
+        // SAFETY: fired from a live `BufferedReader` read path, so `maxbuf` is
+        // live and its subprocess back-pointer is the owner.
+        unsafe { crate::api::bun_subprocess::Subprocess::on_max_buffer_overflow(maxbuf) };
+    };
 }
 
 impl FileReader {

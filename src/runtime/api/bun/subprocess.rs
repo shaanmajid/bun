@@ -704,20 +704,25 @@ impl Subprocess<'_> {
         let _ = self.try_kill(self.kill_signal);
     }
 
-    /// `MaxBuf::on_overflow` callback. Recovers the stream kind by comparing
-    /// `maxbuf` against this subprocess's `stdout_maxbuf`/`stderr_maxbuf` slots,
-    /// clears the matching slot, and kills the child.
+    /// `BufferedReaderParentLink::on_max_buffer_overflow` handler. Recovers the
+    /// owning subprocess from `maxbuf`'s own back-pointer (not the reader's, so
+    /// this still works once the pipe has been transferred to a `FileReader`),
+    /// matches `maxbuf` against the subprocess's `stdout_maxbuf`/`stderr_maxbuf`
+    /// slots to recover the stream kind, clears the matching slot, and kills the
+    /// child.
     ///
     /// # Safety
-    /// `owner` is the erased `NonNull<Subprocess<'static>>` stored in
-    /// `MaxBuf::owned_by_subprocess`; it is live while that field is `Some`
-    /// (set in `create_for_subprocess`, cleared in `remove_from_subprocess` —
-    /// the subprocess owns the `MaxBuf` slot, so its lifetime contains it).
-    pub(crate) unsafe fn on_max_buffer_overflow(
-        owner: NonNull<()>,
-        maxbuf: NonNull<MaxBuf::MaxBuf>,
-    ) {
-        // SAFETY: caller contract — `owner` is a live `Subprocess<'static>`.
+    /// The erased back-pointer in `maxbuf` (set by `create_for_subprocess`,
+    /// cleared by `remove_from_subprocess`) is a live `Subprocess<'static>` while
+    /// `Some` — the subprocess owns the `MaxBuf` slot, so its lifetime contains
+    /// it. Must be called from a `BufferedReader` read path where `maxbuf` is
+    /// still live (the reader owns it).
+    pub(crate) unsafe fn on_max_buffer_overflow(maxbuf: NonNull<MaxBuf::MaxBuf>) {
+        let Some(owner) = MaxBuf::MaxBuf::subprocess(maxbuf) else {
+            return;
+        };
+        // SAFETY: `owner` is a live `Subprocess<'static>` while the `MaxBuf`'s
+        // back-pointer is `Some` — see the method contract above.
         let sp = unsafe { owner.cast::<Subprocess<'static>>().as_ref() };
         let kind = if sp.stderr_maxbuf.get() == Some(maxbuf) {
             let mut mb = sp.stderr_maxbuf.get();

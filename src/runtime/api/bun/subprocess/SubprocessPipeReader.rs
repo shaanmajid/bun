@@ -422,6 +422,14 @@ bun_io::impl_buffered_reader_parent! {
     on_reader_error = |this, err| (*this).on_reader_error(err);
     loop_           = |this| (*this).loop_().cast();
     event_loop      = |this| (*this).event_loop_handle.as_event_loop_ctx();
+    // The owning subprocess is recovered from `maxbuf`'s own back-pointer (not
+    // `this`), so the same handler works whether the pipe is still read by this
+    // `SubprocessPipeReader` or has been transferred to a `FileReader`.
+    on_max_buffer_overflow = |_this, maxbuf| {
+        // SAFETY: fired from a live `BufferedReader` read path, so `maxbuf` is
+        // live and its subprocess back-pointer is the owner.
+        unsafe { Subprocess::on_max_buffer_overflow(maxbuf) };
+    };
 }
 
 // ported from: src/runtime/api/bun/subprocess/SubprocessPipeReader.zig
