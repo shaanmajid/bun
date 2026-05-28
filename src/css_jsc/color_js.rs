@@ -186,6 +186,50 @@ pub mod ansi256 {
     }
 }
 
+/// Per-thread scratch arena for a single `Bun.color` string parse.
+///
+/// The CSS tokenizer threads `&'a Arena` through `ParserInput`, but for a color
+/// literal it allocates *nothing* into it on the common path — idents, numbers
+/// and percentages are borrowed sub-slices of the input (see
+/// `Tokenizer::consume_name`/`consume_numeric`). Only an escape sequence, NUL,
+/// or non-ASCII byte inside an ident/string forces a copy-on-write `ArenaVec`,
+/// and those are deliberately abandoned into the arena (`CopyOnWriteStr`'s
+/// `into_bump_slice`), relying on a bulk free.
+///
+/// A fresh `Arena::new()` per call pays a `mi_heap_new()` + `mi_heap_destroy()`
+/// round-trip — which profiling attributes ~900ns to, dwarfing the parse
+/// itself — so reuse one warm heap per thread instead and reset it at the top
+/// of each call. `reset_retain_with_limit` keeps the heap while its footprint
+/// is small (the common case allocates zero, so it is a cheap retain) and only
+/// falls back to `mi_heap_destroy` + `mi_heap_new` once the abandoned
+/// copy-on-write buffers exceed the cap — bounding steady-state memory without
+/// leaking. `Bun.color` runs on the JS thread and does not re-enter during a
+/// parse, so the returned borrow never aliases a live `&mut`. The parsed
+/// `CssColor` is fully owned (no arena lifetime), so nothing references the
+/// arena across the next call's reset.
+fn color_parse_arena() -> &'static Arena {
+    use std::cell::UnsafeCell;
+
+    thread_local! {
+        static ARENA: UnsafeCell<Arena> = UnsafeCell::new(Arena::new());
+    }
+
+    ARENA.with(|cell| {
+        // SAFETY: `Bun.color` runs on the JS thread and the tokenizer never
+        // re-enters it, so within one call the transient `&mut` (the reset) and
+        // the `&` handed out below do not overlap. Across calls, the previous
+        // call's `&'static` borrow has already ended (the parsed `CssColor` is
+        // owned, with no arena lifetime) by the time the next call takes its
+        // `&mut` to reset — so the `'static` is never aliased by a live `&mut`.
+        // The thread-local `Arena` lives for the thread's lifetime (never
+        // dropped), matching the `&'static` we mint.
+        unsafe {
+            (*cell.get()).reset_retain_with_limit(64 * 1024);
+            &*cell.get()
+        }
+    })
+}
+
 pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
     use bun_ast::symbol::Map as SymbolMap;
     use bun_core::ZigStringSlice;
@@ -307,10 +351,12 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
 
         input = args[0].to_slice(global)?;
 
-        // Zig used ArenaAllocator + stackFallback(4096) (free init); MimallocArena::new()
-        // calls mi_heap_new(), so defer creation to the paths that actually allocate.
-        let arena = Arena::new();
-        let mut parser_input = css::ParserInput::new(input.slice(), &arena);
+        // Reuse a per-thread warm heap instead of `Arena::new()` per call (see
+        // `color_parse_arena`): the common color literal allocates nothing here,
+        // so this avoids a `mi_heap_new`/`mi_heap_destroy` round-trip on the hot
+        // path while still bulk-freeing any copy-on-write token buffers.
+        let arena = color_parse_arena();
+        let mut parser_input = css::ParserInput::new(input.slice(), arena);
         let mut parser = css::Parser::new(
             &mut parser_input,
             None,
@@ -583,8 +629,13 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
                 return str.transfer_to_js(global);
             }
 
-            // Fallback to CSS string output
-            let arena = Arena::new();
+            // Fallback to CSS string output. Borrow the process default heap
+            // instead of `Arena::new()` (= `mi_heap_new` + `mi_heap_destroy` on
+            // drop): serializing a single `CssColor` writes into the global-heap
+            // `dest` vec, and the printer's `scratchbuf`/`indentation_buf` stay
+            // empty for a bare color value, so the side heap backs no allocations
+            // and only costs the create/destroy round-trip per call.
+            let arena = Arena::borrowing_default();
             let mut dest: Vec<u8> = Vec::new();
 
             let symbols = SymbolMap::init_list(Default::default());
