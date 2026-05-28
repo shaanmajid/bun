@@ -653,7 +653,9 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
                 );
 
                 if let Err(err) = result.to_css(&mut printer) {
-                    return Err(global.throw(format_args!("color() internal error: {}", err.name())));
+                    return Err(
+                        global.throw(format_args!("color() internal error: {}", err.name()))
+                    );
                 }
                 drop(printer);
 
