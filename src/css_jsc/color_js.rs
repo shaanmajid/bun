@@ -641,7 +641,8 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
                 let mut dest: Vec<u8> = Vec::new();
 
                 let symbols = SymbolMap::init_list(Default::default());
-                // TODO(port): css::Printer::new signature — Zig passes (allocator, ArrayList, writer, opts, null, null, &symbols)
+                // Args mirror Zig's `Printer.new(allocator, ArrayList, writer,
+                // opts, import_info=null, local_names=null, &symbols)`.
                 let mut printer = css::Printer::new(
                     arena,
                     bun_alloc::ArenaVec::<u8>::new_in(arena),
