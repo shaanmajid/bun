@@ -86,9 +86,10 @@ pub trait BufferedReaderParent {
     unsafe fn on_reader_error(this: *mut Self, err: sys::Error);
     unsafe fn loop_(this: *mut Self) -> *mut Loop;
     unsafe fn event_loop(this: *mut Self) -> EventLoopHandle;
-    /// Fired when this reader's `MaxBuf` budget goes negative. Only
-    /// `SubprocessPipeReader` overrides this; the default no-ops because no
-    /// other parent type wires a `MaxBuf`.
+    /// Fired when this reader's `MaxBuf` budget goes negative.
+    /// `SubprocessPipeReader` and `FileReader` override this (a subprocess pipe's
+    /// `MaxBuf` is transferred to the `FileReader` when stdout/stderr is read as a
+    /// `ReadableStream`); the default no-ops for parents that never wire a `MaxBuf`.
     unsafe fn on_max_buffer_overflow(this: *mut Self, maxbuf: NonNull<MaxBuf>) {
         let _ = (this, maxbuf);
     }

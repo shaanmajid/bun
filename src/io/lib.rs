@@ -349,8 +349,9 @@ bun_dispatch::link_interface! {
         fn on_reader_error(err: bun_sys::Error);
         fn loop_ptr() -> *mut Loop;
         fn event_loop() -> EventLoopCtx;
-        // Only the `SubprocessPipeReader` arm acts on this; everything else
-        // no-ops (no other parent type wires a `MaxBuf`).
+        // The `SubprocessPipeReader` and `FileReader` arms act on this (the
+        // subprocess pipe's `MaxBuf` is transferred to the `FileReader` on
+        // `ReadableStream` conversion); every other arm no-ops.
         fn on_max_buffer_overflow(maxbuf: core::ptr::NonNull<max_buf::MaxBuf>);
     }
 }
@@ -374,7 +375,7 @@ bun_dispatch::link_interface! {
 ///     on_reader_error  = |this, err| (*this).on_reader_error(err);
 ///     loop_            = |this| (*this).loop_();
 ///     event_loop       = |this| (*this).event_loop_handle.as_event_loop_ctx();
-///     // ↓ optional — only `SubprocessPipeReader` overrides this
+///     // ↓ optional — `SubprocessPipeReader` and `FileReader` override this
 ///     on_max_buffer_overflow = |this, maxbuf| { ... };
 /// }
 /// ```
