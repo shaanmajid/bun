@@ -8,7 +8,7 @@ use bun_core::StackCheck;
 use bun_core::{Output, Timespec, TimespecMockMode, ZBox, fmt as bun_fmt};
 use bun_core::{String as BunString, ZStr, strings};
 use bun_event_loop::SpawnSyncEventLoop::TickState;
-use bun_io::max_buf::MaxBuf;
+use bun_io::max_buf::{MaxBuf, Subprocess as MaxBufOwner};
 use bun_jsc::ipc as IPC;
 use bun_jsc::{
     self as jsc, EventLoopHandle, JSGlobalObject, JSObject, JSPropertyIterator, JSValue, JsError,
@@ -1271,34 +1271,27 @@ pub(crate) fn spawn_maybe_sync<const IS_SYNC: bool>(
 
     // Address-dependent fields, filled now that `subprocess` has a stable address.
     //
-    // `owner` is this freshly-boxed subprocess (stable address) and
-    // `on_max_buffer_overflow` casts it back to `Subprocess<'static>`. The
+    // `owner` bundles this freshly-boxed subprocess (stable address) with
+    // `on_max_buffer_overflow`, which casts it back to `Subprocess<'static>`. The
     // subprocess owns both maxbuf slots and clears them (via
     // `remove_from_subprocess`) on finalize / spawn error / overflow, so the
-    // back-pointer passed below never outlives the subprocess.
+    // back-pointer never outlives the subprocess.
     {
-        let owner = subprocess_nn.cast::<()>();
+        let owner = MaxBufOwner::Owned {
+            ptr: subprocess_nn.cast::<()>(),
+            on_overflow: SubprocessT::on_max_buffer_overflow,
+        };
         let mut mb = None;
-        // SAFETY: `owner`/`on_max_buffer_overflow` pairing is valid for the
-        // subprocess's lifetime — see the note above.
+        // SAFETY: `owner`'s ptr/on_overflow pairing is valid for the subprocess's
+        // lifetime — see the note above.
         unsafe {
-            MaxBuf::create_for_subprocess(
-                owner,
-                SubprocessT::on_max_buffer_overflow,
-                &mut mb,
-                max_buffer,
-            );
+            MaxBuf::create_for_subprocess(owner, &mut mb, max_buffer);
         }
         subprocess.stderr_maxbuf.set(mb);
         let mut mb = None;
         // SAFETY: same as the stderr slot above.
         unsafe {
-            MaxBuf::create_for_subprocess(
-                owner,
-                SubprocessT::on_max_buffer_overflow,
-                &mut mb,
-                max_buffer,
-            );
+            MaxBuf::create_for_subprocess(owner, &mut mb, max_buffer);
         }
         subprocess.stdout_maxbuf.set(mb);
     }
