@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from "bun:test";
-import { bunEnv, bunExe } from "harness";
+import { bunEnv, bunExe, isASAN, isDebug } from "harness";
 import { join } from "path";
 
 describe("FormData", () => {
@@ -749,13 +749,18 @@ describe("FormData", () => {
       formData.get("foo")!.type;
       return formData;
     }
-    for (let i = 0; i < 100000; i++) {
+    // The loop is a refcount stress test. ASAN traps a use-after-free on the
+    // first occurrence, so a smaller loop still catches the regression there
+    // without blowing the per-test timeout on the far slower debug/ASAN build.
+    const iterations = isDebug || isASAN ? 5_000 : 100_000;
+    const gcEvery = iterations / 5;
+    for (let i = 0; i < iterations; i++) {
       test();
-      if (i % 5000 === 0) {
+      if (i % gcEvery === 0) {
         Bun.gc();
       }
     }
-  });
+  }, 60_000);
 });
 
 // https://github.com/oven-sh/bun/issues/14988
