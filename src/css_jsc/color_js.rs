@@ -186,7 +186,8 @@ pub mod ansi256 {
     }
 }
 
-/// Per-thread scratch arena for a single `Bun.color` string parse.
+/// Parse a color with a reused per-thread scratch arena, running `f` with a
+/// borrow of that arena and returning whatever it produces.
 ///
 /// The CSS tokenizer threads `&'a Arena` through `ParserInput`, but for a color
 /// literal it allocates *nothing* into it on the common path — idents, numbers
@@ -198,35 +199,27 @@ pub mod ansi256 {
 ///
 /// A fresh `Arena::new()` per call pays a `mi_heap_new()` + `mi_heap_destroy()`
 /// round-trip — which profiling attributes ~900ns to, dwarfing the parse
-/// itself — so reuse one warm heap per thread instead and reset it at the top
-/// of each call. `reset_retain_with_limit` keeps the heap while its footprint
-/// is small (the common case allocates zero, so it is a cheap retain) and only
-/// falls back to `mi_heap_destroy` + `mi_heap_new` once the abandoned
-/// copy-on-write buffers exceed the cap — bounding steady-state memory without
-/// leaking. `Bun.color` runs on the JS thread and does not re-enter during a
-/// parse, so the returned borrow never aliases a live `&mut`. The parsed
-/// `CssColor` is fully owned (no arena lifetime), so nothing references the
-/// arena across the next call's reset.
-fn color_parse_arena() -> &'static Arena {
-    use std::cell::UnsafeCell;
+/// itself — so reuse one warm heap per thread instead and reset it before each
+/// parse. `reset_retain_with_limit` keeps the heap while its footprint is small
+/// (the common case allocates zero, so it is a cheap retain) and only falls
+/// back to `mi_heap_destroy` + `mi_heap_new` once the abandoned copy-on-write
+/// buffers exceed the cap — bounding steady-state memory without leaking.
+///
+/// The arena borrow is confined to `f` via the `RefCell` guard, so there is no
+/// `unsafe`: `f` returns the fully-owned `CssColor` (the enum carries no arena
+/// lifetime), and `Bun.color` runs on the JS thread where the tokenizer never
+/// re-enters this — a re-entry would be a safe `RefCell` double-borrow panic,
+/// not UB.
+fn with_parse_arena<R>(f: impl FnOnce(&Arena) -> R) -> R {
+    use std::cell::RefCell;
 
     thread_local! {
-        static ARENA: UnsafeCell<Arena> = UnsafeCell::new(Arena::new());
+        static ARENA: RefCell<Arena> = RefCell::new(Arena::new());
     }
 
-    ARENA.with(|cell| {
-        // SAFETY: `Bun.color` runs on the JS thread and the tokenizer never
-        // re-enters it, so within one call the transient `&mut` (the reset) and
-        // the `&` handed out below do not overlap. Across calls, the previous
-        // call's `&'static` borrow has already ended (the parsed `CssColor` is
-        // owned, with no arena lifetime) by the time the next call takes its
-        // `&mut` to reset — so the `'static` is never aliased by a live `&mut`.
-        // The thread-local `Arena` lives for the thread's lifetime (never
-        // dropped), matching the `&'static` we mint.
-        unsafe {
-            (*cell.get()).reset_retain_with_limit(64 * 1024);
-            &*cell.get()
-        }
+    ARENA.with_borrow_mut(|arena| {
+        arena.reset_retain_with_limit(64 * 1024);
+        f(arena)
     })
 }
 
@@ -352,18 +345,20 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
         input = args[0].to_slice(global)?;
 
         // Reuse a per-thread warm heap instead of `Arena::new()` per call (see
-        // `color_parse_arena`): the common color literal allocates nothing here,
+        // `with_parse_arena`): the common color literal allocates nothing here,
         // so this avoids a `mi_heap_new`/`mi_heap_destroy` round-trip on the hot
-        // path while still bulk-freeing any copy-on-write token buffers.
-        let arena = color_parse_arena();
-        let mut parser_input = css::ParserInput::new(input.slice(), arena);
-        let mut parser = css::Parser::new(
-            &mut parser_input,
-            None,
-            css::css_parser::ParserOpts::default(),
-            None,
-        );
-        break 'brk CssColor::parse(&mut parser);
+        // path while still bulk-freeing any copy-on-write token buffers. The
+        // parsed `CssColor` is fully owned, so it outlives the arena borrow.
+        break 'brk with_parse_arena(|arena| {
+            let mut parser_input = css::ParserInput::new(input.slice(), arena);
+            let mut parser = css::Parser::new(
+                &mut parser_input,
+                None,
+                css::css_parser::ParserOpts::default(),
+                None,
+            );
+            CssColor::parse(&mut parser)
+        });
     };
 
     match parsed_color {
