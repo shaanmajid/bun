@@ -704,6 +704,38 @@ impl Subprocess<'_> {
         let _ = self.try_kill(self.kill_signal);
     }
 
+    /// `MaxBuf::on_overflow` callback. Recovers the stream kind by comparing
+    /// `maxbuf` against this subprocess's `stdout_maxbuf`/`stderr_maxbuf` slots,
+    /// clears the matching slot, and kills the child.
+    ///
+    /// # Safety
+    /// `owner` is the erased `NonNull<Subprocess<'static>>` stored in
+    /// `MaxBuf::owned_by_subprocess`; it is live while that field is `Some`
+    /// (set in `create_for_subprocess`, cleared in `remove_from_subprocess` —
+    /// the subprocess owns the `MaxBuf` slot, so its lifetime contains it).
+    pub(crate) unsafe fn on_max_buffer_overflow(
+        owner: NonNull<()>,
+        maxbuf: NonNull<MaxBuf::MaxBuf>,
+    ) {
+        // SAFETY: caller contract — `owner` is a live `Subprocess<'static>`.
+        let sp = unsafe { owner.cast::<Subprocess<'static>>().as_ref() };
+        let kind = if sp.stderr_maxbuf.get() == Some(maxbuf) {
+            let mut mb = sp.stderr_maxbuf.get();
+            MaxBuf::MaxBuf::remove_from_subprocess(&mut mb);
+            sp.stderr_maxbuf.set(mb);
+            MaxBuf::Kind::Stderr
+        } else if sp.stdout_maxbuf.get() == Some(maxbuf) {
+            let mut mb = sp.stdout_maxbuf.get();
+            MaxBuf::MaxBuf::remove_from_subprocess(&mut mb);
+            sp.stdout_maxbuf.set(mb);
+            MaxBuf::Kind::Stdout
+        } else {
+            debug_assert!(false);
+            return;
+        };
+        sp.on_max_buffer(kind);
+    }
+
     #[bun_jsc::host_fn(method)]
     pub fn kill(
         this: &Self,

@@ -86,12 +86,6 @@ pub trait BufferedReaderParent {
     unsafe fn on_reader_error(this: *mut Self, err: sys::Error);
     unsafe fn loop_(this: *mut Self) -> *mut Loop;
     unsafe fn event_loop(this: *mut Self) -> EventLoopHandle;
-    /// Fired when this reader's `MaxBuf` budget goes negative. Only
-    /// `SubprocessPipeReader` overrides this; the default no-ops because no
-    /// other parent type wires a `MaxBuf`.
-    unsafe fn on_max_buffer_overflow(this: *mut Self, maxbuf: NonNull<MaxBuf>) {
-        let _ = (this, maxbuf);
-    }
 }
 
 impl BufferedReaderVTable {
@@ -135,10 +129,6 @@ impl BufferedReaderVTable {
 
     pub(crate) fn on_reader_error(&self, err: sys::Error) {
         self.link().on_reader_error(err)
-    }
-
-    pub(crate) fn on_max_buffer_overflow(&self, maxbuf: NonNull<MaxBuf>) {
-        self.link().on_max_buffer_overflow(maxbuf)
     }
 }
 
@@ -646,9 +636,7 @@ impl PosixBufferedReader {
                 match sys::read_nonblocking(fd, stack_buffer) {
                     sys::Result::Ok(bytes_read) => {
                         if let Some(l) = parent.maxbuf {
-                            if MaxBuf::on_read_bytes(l, bytes_read as u64) {
-                                parent.vtable.on_max_buffer_overflow(l);
-                            }
+                            MaxBuf::on_read_bytes(l, bytes_read as u64);
                         }
 
                         if bytes_read == 0 {
@@ -695,9 +683,7 @@ impl PosixBufferedReader {
                     match sys::read_nonblocking(fd, buf) {
                         sys::Result::Ok(bytes_read) => {
                             if let Some(l) = parent.maxbuf {
-                                if MaxBuf::on_read_bytes(l, bytes_read as u64) {
-                                    parent.vtable.on_max_buffer_overflow(l);
-                                }
+                                MaxBuf::on_read_bytes(l, bytes_read as u64);
                             }
                             parent._offset += bytes_read;
                             // SAFETY: bytes_read bytes were just initialized by the syscall.
@@ -839,9 +825,7 @@ impl PosixBufferedReader {
                     match sys_fn(fd, buf, parent._offset) {
                         sys::Result::Ok(bytes_read) => {
                             if let Some(l) = parent.maxbuf {
-                                if MaxBuf::on_read_bytes(l, bytes_read as u64) {
-                                    parent.vtable.on_max_buffer_overflow(l);
-                                }
+                                MaxBuf::on_read_bytes(l, bytes_read as u64);
                             }
                             parent._offset += bytes_read;
                             head_start += bytes_read;
@@ -955,9 +939,7 @@ impl PosixBufferedReader {
                             .extend_from_slice(&stack_buffer[..bytes_read]);
                     }
                     if let Some(l) = parent.maxbuf {
-                        if MaxBuf::on_read_bytes(l, bytes_read as u64) {
-                            parent.vtable.on_max_buffer_overflow(l);
-                        }
+                        MaxBuf::on_read_bytes(l, bytes_read as u64);
                     }
                     parent._offset += bytes_read;
 
@@ -997,9 +979,7 @@ impl PosixBufferedReader {
             match sys_fn(fd, buf, parent._offset) {
                 sys::Result::Ok(bytes_read) => {
                     if let Some(l) = parent.maxbuf {
-                        if MaxBuf::on_read_bytes(l, bytes_read as u64) {
-                            parent.vtable.on_max_buffer_overflow(l);
-                        }
+                        MaxBuf::on_read_bytes(l, bytes_read as u64);
                     }
                     parent._offset += bytes_read;
                     // SAFETY: bytes_read bytes initialized by sys_fn.
@@ -1264,9 +1244,7 @@ impl WindowsBufferedReader {
 
     fn _on_read_chunk(&mut self, buf: &[u8], has_more: ReadState) -> bool {
         if let Some(m) = self.maxbuf {
-            if MaxBuf::on_read_bytes(m, buf.len() as u64) {
-                self.vtable.on_max_buffer_overflow(m);
-            }
+            MaxBuf::on_read_bytes(m, buf.len() as u64);
         }
 
         if has_more == ReadState::Eof {

@@ -11,8 +11,20 @@ use core::ptr::NonNull;
 /// caller's stack would be a Stacked-Borrows violation. With `Cell` the whole
 /// re-entrancy path is `&MaxBuf`-only and the aliasing question disappears.
 pub struct MaxBuf {
-    /// `false` after subprocess finalize.
-    pub owned_by_subprocess: Cell<bool>,
+    /// Erased back-pointer to the owning `Subprocess`; `None` after subprocess
+    /// finalize. Erased because `Subprocess` lives in `bun_runtime` (a downstream
+    /// crate); the pairing with `on_overflow` recovers the concrete type. The
+    /// `Subprocess` owns this `MaxBuf` (via `stdout_maxbuf`/`stderr_maxbuf`), so
+    /// the back-pointer is sound while `Some`.
+    pub owned_by_subprocess: Cell<Option<NonNull<()>>>,
+    /// Dispatches `Subprocess::on_max_buffer(kind)` on `owned_by_subprocess`.
+    /// Receives this `MaxBuf` so the callee can compare against the subprocess's
+    /// `stdout_maxbuf`/`stderr_maxbuf` slots to recover the stream kind, then
+    /// clears the matching slot and kills the child. Dispatching from `MaxBuf`
+    /// itself (not the pipe-reader vtable) is load-bearing: when stdout/stderr
+    /// is converted to a `ReadableStream`, the `MaxBuf` is transferred to a
+    /// `FileReader` whose vtable has no subprocess back-reference.
+    on_overflow: unsafe fn(NonNull<()>, NonNull<MaxBuf>),
     /// `false` after pipereader finalize.
     pub owned_by_reader: Cell<bool>,
     /// If this goes negative, `on_max_buffer` is called on the subprocess.
@@ -39,20 +51,26 @@ impl MaxBuf {
         unsafe { this.as_ref() }
     }
 
-    pub fn create_for_subprocess(ptr: &mut Option<NonNull<MaxBuf>>, initial: Option<i64>) {
+    pub fn create_for_subprocess(
+        owner: NonNull<()>,
+        on_overflow: unsafe fn(NonNull<()>, NonNull<MaxBuf>),
+        ptr: &mut Option<NonNull<MaxBuf>>,
+        initial: Option<i64>,
+    ) {
         let Some(initial) = initial else {
             *ptr = None;
             return;
         };
         *ptr = Some(bun_core::heap::into_raw_nn(Box::new(MaxBuf {
-            owned_by_subprocess: Cell::new(true),
+            owned_by_subprocess: Cell::new(Some(owner)),
+            on_overflow,
             owned_by_reader: Cell::new(false),
             remaining_bytes: Cell::new(initial),
         })));
     }
 
     fn disowned(&self) -> bool {
-        !self.owned_by_subprocess.get() && !self.owned_by_reader.get()
+        self.owned_by_subprocess.get().is_none() && !self.owned_by_reader.get()
     }
 
     /// Module-private teardown. Safe `fn` because the precondition is the
@@ -72,8 +90,8 @@ impl MaxBuf {
     pub fn remove_from_subprocess(ptr: &mut Option<NonNull<MaxBuf>>) {
         let Some(this_nn) = *ptr else { return };
         let this = Self::live(&this_nn);
-        debug_assert!(this.owned_by_subprocess.get());
-        this.owned_by_subprocess.set(false);
+        debug_assert!(this.owned_by_subprocess.get().is_some());
+        this.owned_by_subprocess.set(None);
         *ptr = None;
         if this.disowned() {
             MaxBuf::destroy(this_nn);
@@ -111,24 +129,34 @@ impl MaxBuf {
         *prev = None;
     }
 
-    /// Returns `true` if this read pushed the budget negative *and* the
-    /// subprocess still owns it (i.e. the caller should fire
-    /// `BufferedReaderParentLink::on_max_buffer_overflow`).
+    /// Debit `bytes` from the budget; on overflow, dispatch `on_overflow`
+    /// directly to the owning subprocess (which kills the child).
     ///
-    /// Takes `NonNull` (not `&mut self`) because the overflow callback the
-    /// caller fires next is contractually required to call
+    /// Takes `NonNull` (not `&mut self`) because the overflow callback re-enters
     /// `remove_from_subprocess`, which writes `owned_by_subprocess` through a
     /// sibling pointer to this same allocation. With `Cell` fields a shared
     /// `&MaxBuf` is sufficient and the re-entrancy is sound; the single
     /// `unsafe` is the `NonNull → &MaxBuf` projection (the back-ref invariant:
     /// `this` is live while `owned_by_reader` is set, which every caller has
     /// just checked via `Some(maxbuf)`).
-    pub fn on_read_bytes(this: NonNull<MaxBuf>, bytes: u64) -> bool {
-        let this = Self::live(&this);
+    pub fn on_read_bytes(this: NonNull<MaxBuf>, bytes: u64) {
+        let this_ref = Self::live(&this);
         let delta = i64::try_from(bytes).unwrap_or(0);
-        let remaining = this.remaining_bytes.get().checked_sub(delta).unwrap_or(-1);
-        this.remaining_bytes.set(remaining);
-        remaining < 0 && this.owned_by_subprocess.get()
+        let remaining = this_ref
+            .remaining_bytes
+            .get()
+            .checked_sub(delta)
+            .unwrap_or(-1);
+        this_ref.remaining_bytes.set(remaining);
+        if remaining < 0 {
+            if let Some(owner) = this_ref.owned_by_subprocess.get() {
+                // SAFETY: `owner` is the `Subprocess` that owns this `MaxBuf`
+                // (set in `create_for_subprocess`, cleared in
+                // `remove_from_subprocess`); the subprocess outlives its
+                // `MaxBuf` slot, so the back-pointer is live while `Some`.
+                unsafe { (this_ref.on_overflow)(owner, this) };
+            }
+        }
     }
 }
 

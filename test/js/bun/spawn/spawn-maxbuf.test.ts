@@ -51,6 +51,67 @@ describe("yes is killed", () => {
   });
 });
 
+describe("maxBuffer kills the child when stdout/stderr is read as a stream", () => {
+  // The child writes forever; without maxBuffer enforcement these tests hang.
+  // Reading the stream *before* `await proc.exited` exercises the path where the
+  // pipe's BufferedReader has been transferred to a FileReader (whose vtable has
+  // no Subprocess back-reference), so the kill must dispatch through MaxBuf's
+  // own subprocess back-pointer.
+  const producer = "while(true)process.stdout.write(Buffer.alloc(1024,120))";
+  const producerErr = "while(true)process.stderr.write(Buffer.alloc(1024,120))";
+
+  test.concurrent("new Response(proc.stdout).text()", async () => {
+    const proc = Bun.spawn([bunExe(), "-e", producer], {
+      maxBuffer: 1000,
+      stdout: "pipe",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThan(1_000_000);
+  });
+
+  test.concurrent("proc.stdout.text()", async () => {
+    const proc = Bun.spawn([bunExe(), "-e", producer], {
+      maxBuffer: 1000,
+      stdout: "pipe",
+    });
+    const text = await proc.stdout.text();
+    await proc.exited;
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThan(1_000_000);
+  });
+
+  test.concurrent("new Response(proc.stderr).text()", async () => {
+    const proc = Bun.spawn([bunExe(), "-e", producerErr], {
+      maxBuffer: 1000,
+      stderr: "pipe",
+    });
+    const text = await new Response(proc.stderr).text();
+    await proc.exited;
+    expect(proc.signalCode).toBe("SIGTERM");
+    expect(proc.exitCode).toBe(null);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThan(1_000_000);
+  });
+
+  test.concurrent("under-limit streaming read returns full output", async () => {
+    const proc = Bun.spawn([bunExe(), "-e", "process.stdout.write(Buffer.alloc(500,120))"], {
+      maxBuffer: 1000,
+      stdout: "pipe",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    expect(text.length).toBe(500);
+    expect(proc.signalCode).toBe(null);
+    expect(proc.exitCode).toBe(0);
+  });
+});
+
 describe("maxBuffer infinity does not limit the number of bytes", () => {
   const sample = "this is a long example string\n";
   const sample_repeat_count = 10000;
