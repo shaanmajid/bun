@@ -186,31 +186,36 @@ pub mod ansi256 {
     }
 }
 
-/// Parse a color with a reused per-thread scratch arena, running `f` with a
-/// borrow of that arena and returning whatever it produces.
+/// Run `f` with a borrow of a reused per-thread scratch arena, returning
+/// whatever it produces. Used for both halves of `Bun.color` on a string —
+/// the CSS parse and the CSS-string serialization.
 ///
-/// The CSS tokenizer threads `&'a Arena` through `ParserInput`, but for a color
-/// literal it allocates *nothing* into it on the common path — idents, numbers
-/// and percentages are borrowed sub-slices of the input (see
-/// `Tokenizer::consume_name`/`consume_numeric`). Only an escape sequence, NUL,
-/// or non-ASCII byte inside an ident/string forces a copy-on-write `ArenaVec`,
-/// and those are deliberately abandoned into the arena (`CopyOnWriteStr`'s
-/// `into_bump_slice`), relying on a bulk free.
+/// Neither half allocates into the arena on the common path: the tokenizer
+/// threads `&'a Arena` through `ParserInput` but idents/numbers/percentages are
+/// borrowed sub-slices of the input (see `Tokenizer::consume_name`/
+/// `consume_numeric`), and the printer's `scratchbuf`/`indentation_buf` stay
+/// empty for a bare `CssColor` (which serializes straight into a global-heap
+/// `Vec<u8>`). Only an escape sequence / NUL / non-ASCII byte inside an ident
+/// forces a copy-on-write `ArenaVec`, deliberately abandoned into the arena
+/// (`CopyOnWriteStr`'s `into_bump_slice`), relying on a bulk free.
 ///
 /// A fresh `Arena::new()` per call pays a `mi_heap_new()` + `mi_heap_destroy()`
-/// round-trip — which profiling attributes ~900ns to, dwarfing the parse
-/// itself — so reuse one warm heap per thread instead and reset it before each
-/// parse. `reset_retain_with_limit` keeps the heap while its footprint is small
-/// (the common case allocates zero, so it is a cheap retain) and only falls
-/// back to `mi_heap_destroy` + `mi_heap_new` once the abandoned copy-on-write
-/// buffers exceed the cap — bounding steady-state memory without leaking.
+/// round-trip — which profiling attributes ~900ns per site to, dwarfing the
+/// work itself — so reuse one warm heap per thread instead and reset it before
+/// each use. `reset_retain_with_limit` keeps the heap while its footprint is
+/// small (the common case allocates zero, a cheap retain) and only falls back
+/// to `mi_heap_destroy` + `mi_heap_new` once abandoned buffers exceed the cap —
+/// bounding steady-state memory without leaking. Unlike `borrowing_default()`,
+/// any stray allocation lands in this arena and is reclaimed by the next reset
+/// rather than leaking into `mi_heap_main()`.
 ///
 /// The arena borrow is confined to `f` via the `RefCell` guard, so there is no
-/// `unsafe`: `f` returns the fully-owned `CssColor` (the enum carries no arena
-/// lifetime), and `Bun.color` runs on the JS thread where the tokenizer never
-/// re-enters this — a re-entry would be a safe `RefCell` double-borrow panic,
-/// not UB.
-fn with_parse_arena<R>(f: impl FnOnce(&Arena) -> R) -> R {
+/// `unsafe`: `f`'s return value carries no arena lifetime, and `Bun.color` runs
+/// on the JS thread where neither the tokenizer nor the printer re-enters this
+/// — a re-entry would be a safe `RefCell` double-borrow panic, not UB. The two
+/// uses within one call are sequential (parse, then serialize), so they take
+/// the borrow one after another, never nested.
+fn with_color_arena<R>(f: impl FnOnce(&Arena) -> R) -> R {
     use std::cell::RefCell;
 
     thread_local! {
@@ -345,11 +350,11 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
         input = args[0].to_slice(global)?;
 
         // Reuse a per-thread warm heap instead of `Arena::new()` per call (see
-        // `with_parse_arena`): the common color literal allocates nothing here,
+        // `with_color_arena`): the common color literal allocates nothing here,
         // so this avoids a `mi_heap_new`/`mi_heap_destroy` round-trip on the hot
         // path while still bulk-freeing any copy-on-write token buffers. The
         // parsed `CssColor` is fully owned, so it outlives the arena borrow.
-        break 'brk with_parse_arena(|arena| {
+        break 'brk with_color_arena(|arena| {
             let mut parser_input = css::ParserInput::new(input.slice(), arena);
             let mut parser = css::Parser::new(
                 &mut parser_input,
@@ -624,33 +629,36 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
                 return str.transfer_to_js(global);
             }
 
-            // Fallback to CSS string output. Borrow the process default heap
-            // instead of `Arena::new()` (= `mi_heap_new` + `mi_heap_destroy` on
-            // drop): serializing a single `CssColor` writes into the global-heap
-            // `dest` vec, and the printer's `scratchbuf`/`indentation_buf` stay
-            // empty for a bare color value, so the side heap backs no allocations
-            // and only costs the create/destroy round-trip per call.
-            let arena = Arena::borrowing_default();
-            let mut dest: Vec<u8> = Vec::new();
+            // Fallback to CSS string output. Reuse the same per-thread warm heap
+            // as the parser (see `with_color_arena`) instead of `Arena::new()`
+            // per call: serializing a single `CssColor` writes into the
+            // global-heap `dest` vec and leaves the printer's
+            // `scratchbuf`/`indentation_buf` empty, so the arena backs no
+            // allocations on the common path — but routing through it (rather
+            // than `borrowing_default()`) means any stray printer allocation is
+            // reclaimed by the next reset instead of leaking into the main heap.
+            return with_color_arena(|arena| {
+                let mut dest: Vec<u8> = Vec::new();
 
-            let symbols = SymbolMap::init_list(Default::default());
-            // TODO(port): css::Printer::new signature — Zig passes (allocator, ArrayList, writer, opts, null, null, &symbols)
-            let mut printer = css::Printer::new(
-                &arena,
-                bun_alloc::ArenaVec::<u8>::new_in(&arena),
-                &mut dest,
-                &css::PrinterOptions::default(),
-                None,
-                None,
-                &symbols,
-            );
+                let symbols = SymbolMap::init_list(Default::default());
+                // TODO(port): css::Printer::new signature — Zig passes (allocator, ArrayList, writer, opts, null, null, &symbols)
+                let mut printer = css::Printer::new(
+                    arena,
+                    bun_alloc::ArenaVec::<u8>::new_in(arena),
+                    &mut dest,
+                    &css::PrinterOptions::default(),
+                    None,
+                    None,
+                    &symbols,
+                );
 
-            if let Err(err) = result.to_css(&mut printer) {
-                return Err(global.throw(format_args!("color() internal error: {}", err.name())));
-            }
-            drop(printer);
+                if let Err(err) = result.to_css(&mut printer) {
+                    return Err(global.throw(format_args!("color() internal error: {}", err.name())));
+                }
+                drop(printer);
 
-            return bun_jsc::bun_string_jsc::create_utf8_for_js(global, &dest);
+                bun_jsc::bun_string_jsc::create_utf8_for_js(global, &dest)
+            });
         }
     }
 }
