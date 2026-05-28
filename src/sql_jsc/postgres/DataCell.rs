@@ -1327,13 +1327,6 @@ fn parse_binary_numeric<'a>(
             idx += 1;
         }
     }
-    // If requested, output a decimal point and all the digits that follow it.
-    // We initially put out a multiple of DEC_DIGITS (4) digits, then truncate.
-    //
-    // This mirrors Postgres' get_str_from_var: two independent counters —
-    // `d` walks base-10000 digits (advances by 1), `i` counts decimal places
-    // emitted (advances by DEC_DIGITS). Conflating them drops leading-zero
-    // groups when weight <= -3 and shifts significant digits left.
     if dscale > 0 {
         result.push(b'.');
         let end: usize = result.len() + usize::try_from(dscale).expect("int cast");
