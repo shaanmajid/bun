@@ -52,13 +52,16 @@ describe("yes is killed", () => {
 });
 
 describe("maxBuffer kills the child when stdout/stderr is read as a stream", () => {
-  // The child writes forever; without maxBuffer enforcement these tests hang.
-  // Reading the stream *before* `await proc.exited` exercises the path where the
-  // pipe's BufferedReader has been transferred to a FileReader (whose vtable has
-  // no Subprocess back-reference), so the kill must dispatch through MaxBuf's
-  // own subprocess back-pointer.
-  const producer = "while(true)process.stdout.write(Buffer.alloc(1024,120))";
-  const producerErr = "while(true)process.stderr.write(Buffer.alloc(1024,120))";
+  // The child writes 8 MiB — far above `maxBuffer` and the OS pipe buffer, so it
+  // blocks on backpressure long before it finishes. Reading the stream *before*
+  // `await proc.exited` exercises the path where the pipe's BufferedReader has
+  // been transferred to a FileReader (whose vtable has no Subprocess
+  // back-reference), so the kill must dispatch through MaxBuf's own subprocess
+  // back-pointer. Without the fix the child is never killed, runs to completion,
+  // and the stream resolves with the full 8 MiB (> 1 MiB, exit code 0) — the
+  // SIGTERM / size assertions then fail promptly instead of the test hanging.
+  const producer = "for(let i=0;i<8192;i++)process.stdout.write(Buffer.alloc(1024,120))";
+  const producerErr = "for(let i=0;i<8192;i++)process.stderr.write(Buffer.alloc(1024,120))";
 
   test.concurrent("new Response(proc.stdout).text()", async () => {
     const proc = Bun.spawn([bunExe(), "-e", producer], {
