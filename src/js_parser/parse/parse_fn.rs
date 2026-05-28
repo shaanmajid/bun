@@ -117,11 +117,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
             {
                 p.pop_and_discard_scope(scope_index);
 
-                // Discard the fake block scope introduced above. A forward declaration
-                // emits nothing (`S::TypeScript`), so the block must be removed from
-                // `scopes_in_order` too — a plain `pop_scope()` only updates
-                // `current_scope` and would leave the block orphaned in the scope order,
-                // desyncing the visit pass (scope mismatch / pop past the topmost scope).
                 if has_if_scope {
                     p.pop_and_discard_scope(if_stmt_scope_index);
                 }

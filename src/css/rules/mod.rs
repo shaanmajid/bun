@@ -488,12 +488,6 @@ impl<R> CssRuleList<R> {
                         }
                     }
                     CssRule::Container(cont) => {
-                        // The condition-merge/dedup port is still pending, but the
-                        // nested rules must be minified so the nesting-away
-                        // selector expansion stays bounded by
-                        // `MAX_SELECTOR_EXPANSION` — otherwise an at-rule between
-                        // two nesting levels hides the inner levels from the cap
-                        // and the printer expands them exponentially.
                         cont.rules.minify(context, parent_is_unused)?;
                     }
                     CssRule::LayerBlock(lay) => {
@@ -527,19 +521,6 @@ impl<R> CssRuleList<R> {
                         scpe.rules.minify(context, parent_is_unused)?;
                     }
                     CssRule::Nesting(nst) => {
-                        // See `Container` above. `@nest` wraps a single style
-                        // rule whose own selectors also form a nesting level, so
-                        // charge them against the cap and recurse into its nested
-                        // rules with the multiplier bumped accordingly.
-                        //
-                        // Deliberately does NOT run `StyleRule::minify` on the
-                        // wrapped rule: that would feed its declarations through
-                        // the property handlers, which consume logical properties
-                        // (staging LTR/RTL fallbacks in the handler context) that
-                        // the `@nest` minify port does not yet drain — silently
-                        // dropping the declaration. Leaving the declarations
-                        // untouched preserves them verbatim, matching the
-                        // pre-port behavior.
                         nst.style.charge_selector_expansion(context)?;
                         nst.style.minify_nested_rules(context, parent_is_unused)?;
                     }

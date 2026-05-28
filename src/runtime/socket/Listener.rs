@@ -1347,10 +1347,6 @@ fn connect_finish<const IS_SSL: bool>(
         let prev = unsafe { &*prev_ptr };
         // TODO(port): `JsRef::is_not_empty` — assert non-empty wrapper.
         if let Some(prev_handlers) = prev.handlers.get() {
-            // Only free the previous Handlers when no callback scope is still
-            // holding it. If a `data`/`close` handler synchronously re-entered
-            // `connect`, `Scope::exit` (via `Handlers::mark_inactive`) frees it
-            // once the in-flight callback unwinds; freeing here would be a UAF.
             if prev.flags.get().contains(SocketFlags::OWNS_HANDLERS)
                 // SAFETY: prev_handlers was heap-allocated; shared reborrow is
                 // scoped to this expression.

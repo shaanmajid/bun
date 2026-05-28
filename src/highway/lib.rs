@@ -429,13 +429,6 @@ pub fn index_of_space_or_newline_or_non_ascii(haystack: &[u8]) -> Option<usize> 
     Some(result)
 }
 
-/// XxHash3 (`XXH3_64bits_withSeed`), runtime-dispatched to the widest SIMD ISA
-/// the CPU supports. Output is bit-identical to the xxHash reference for every
-/// input — only the long-input stripe loop is vectorized and its per-64-bit-
-/// lane math does not depend on vector width.
-///
-/// `seed` is the full 64-bit seed. Callers wanting the JS `@truncate(seed)`
-/// semantics must truncate before calling (as `HashObject` does).
 #[inline(always)]
 pub fn xxhash3_64(seed: u64, input: &[u8]) -> u64 {
     // SAFETY: `input.ptr/len` are a valid readable range; for an empty slice
@@ -463,11 +456,6 @@ pub fn xxhash64(seed: u64, input: &[u8]) -> u64 {
     unsafe { highway_xxhash64(input.as_ptr(), input.len(), seed) }
 }
 
-/// Streaming XxHash64 state. Mirrors the C++ `XXH64State` POD (80 bytes,
-/// 8-aligned; a compile-time `static_assert` on the C++ side keeps them in
-/// sync). `reset` → any number of `update(chunk)` → `digest()`; the result
-/// equals `xxhash64` of the concatenation. Bit-identical to Zig
-/// `std.hash.XxHash64` streaming.
 #[repr(C, align(8))]
 pub struct XxHash64State {
     // 10 u64 == 80 bytes. Opaque storage; only the C kernel interprets it.

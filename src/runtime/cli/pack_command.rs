@@ -2967,11 +2967,6 @@ fn run_lifecycle_script<const FOR_PUBLISH: bool>(
 // tarball name / destination
 // ───────────────────────────────────────────────────────────────────────────
 
-/// The output tarball filename is derived from the package.json `name` and
-/// `version` fields. Reject values that could steer the formed filename
-/// outside the destination directory (`.`/`..` path components, backslashes,
-/// drive/ADS colons, NUL); other unusual-but-harmless names (e.g. empty scope
-/// segments) keep packing as before.
 fn has_unsafe_tarball_filename_part(value: &[u8]) -> bool {
     value
         .split(|&c| c == b'/')
