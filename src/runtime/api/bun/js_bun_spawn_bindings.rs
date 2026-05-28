@@ -1273,10 +1273,20 @@ pub(crate) fn spawn_maybe_sync<const IS_SYNC: bool>(
     {
         let owner = subprocess_nn.cast::<()>();
         let mut mb = None;
-        MaxBuf::create_for_subprocess(owner, SubprocessT::on_max_buffer_overflow, &mut mb, max_buffer);
+        MaxBuf::create_for_subprocess(
+            owner,
+            SubprocessT::on_max_buffer_overflow,
+            &mut mb,
+            max_buffer,
+        );
         subprocess.stderr_maxbuf.set(mb);
         let mut mb = None;
-        MaxBuf::create_for_subprocess(owner, SubprocessT::on_max_buffer_overflow, &mut mb, max_buffer);
+        MaxBuf::create_for_subprocess(
+            owner,
+            SubprocessT::on_max_buffer_overflow,
+            &mut mb,
+            max_buffer,
+        );
         subprocess.stdout_maxbuf.set(mb);
     }
 
