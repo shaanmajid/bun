@@ -24,19 +24,24 @@ jobs:
       - name: Generate root certs and metadata
         id: generate-certs
         run: |
+          set -o pipefail
           cd packages/bun-usockets/
           CERT_METADATA=$(mktemp)
-          bun generate-root-certs.mjs -v -f "$CERT_METADATA"
+          CERT_OUTPUT=$(mktemp)
+          bun generate-root-certs.mjs -v -f "$CERT_METADATA" | tee "$CERT_OUTPUT"
           cat "$CERT_METADATA" >> "$GITHUB_ENV"
+          {
+            echo "cert_output<<EOF"
+            cat "$CERT_OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Check for changes and stage files
         id: check-changes
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             echo "Found changes, staging modified files..."
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            
+
             # Get list of modified files and add them
             git status --porcelain | while read -r _ file; do
               # Remove leading status and whitespace
@@ -65,9 +70,20 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: ${{ env.COMMIT_MSG }}
+          committer: GitHub <noreply@github.com>
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           title: "crypto: update root certificates to NSS ${{ env.NEW_VERSION }}"
           body: |
             ${{ env.COMMIT_MSG }}
+
+            <details>
+            <summary>Root cert generation output</summary>
+
+            ```text
+            ${{ env.cert_output }}
+            ```
+
+            </details>
 
             ## Changed files
 
@@ -79,4 +95,3 @@ jobs:
           delete-branch: true
           labels: |
             automation
-            root-certs
