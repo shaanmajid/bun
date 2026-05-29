@@ -5459,10 +5459,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                 }
                 0x2D /* '-' */ => {
                     let start = self.pos;
-                    // [203] c-directives-end is line-starting at column 0.
-                    // `line_indent == 0` is the line's indent, true everywhere
-                    // on a column-0 line; is_at_line_start() (pos ==
-                    // line_start_pos) confirms we are at the actual start.
                     if self.is_at_line_start()
                         && self.line_indent == Indent::NONE
                         && self.remain_starts_with(Enc::literal(b"---"))

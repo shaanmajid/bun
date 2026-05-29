@@ -94,14 +94,6 @@ pub enum Version {
     /// fixed unnecessary listing of workspace dependencies
     V1 = 1,
 
-    /// Stricter parsing that rejects, rather than accepts, lockfiles the
-    /// earlier versions tolerated. Gated here so an already-written v0/v1
-    /// lockfile keeps loading:
-    /// - an npm package resolved to a tarball URL outside the configured
-    ///   registry must carry a supported integrity hash
-    /// - a git `.bun-tag` must be a safe path/checkout component (the same
-    ///   check on a `github` tag is enforced at every version, since its
-    ///   download path has no checkout-time re-validation)
     V2 = 2,
 }
 
@@ -168,19 +160,6 @@ impl Stringifier {
         Self::save_from_binary_inner(lockfile, load_result, options, writer)
     }
 
-    /// Pick the `lockfileVersion` to stamp. `Version::CURRENT` (v2) adds
-    /// parse-time checks that reject entries older versions tolerated: an
-    /// off-registry npm tarball without a supported integrity hash, and an
-    /// unsafe git `.bun-tag`. The writer emits those fields verbatim (no
-    /// backfill), so stamping v2 on a lockfile that still carries such an entry
-    /// would make the *next* parse reject it. Only stamp v2 when every package
-    /// already satisfies the v2 invariants; otherwise stay at v1 so the file
-    /// round-trips (load → save → load) cleanly.
-    ///
-    /// Walks the package tree the same way the writer does — only packages that
-    /// are actually serialized are considered, not every entry in the in-memory
-    /// `pkg_resolutions` buffer (migration can leave pruned/unreferenced entries
-    /// there that never reach the written `packages` object).
     fn version_to_write(lockfile: &BinaryLockfile, options: &PackageManagerOptions) -> Version {
         let buf = lockfile.buffers.string_bytes.as_slice();
         let deps_buf = lockfile.buffers.dependencies.as_slice();
@@ -225,10 +204,6 @@ impl Stringifier {
                         }
                     }
                     ResolutionTag::Git => {
-                        // An unsafe git `.bun-tag` is only rejected at v2, so
-                        // staying at v1 keeps it loading. (A `github` tag is
-                        // rejected at every version, so no lockfile version can
-                        // round-trip an unsafe one — nothing to gate here.)
                         if !crate::repository::is_safe_resolved_tag(
                             res.repository().resolved.slice(buf),
                         ) {
@@ -2550,13 +2525,6 @@ pub fn parse_into_binary_lockfile(
                         pkg.meta.integrity = Integrity::default();
                     }
 
-                    // Fail closed: otherwise a tampered lockfile could redirect
-                    // the tarball URL off-registry and install arbitrary content
-                    // under a trusted package name with verification disabled.
-                    //
-                    // Only enforced for v2+. Older lockfiles predate this check
-                    // and may legitimately omit integrity for an off-registry
-                    // tarball; rejecting them would break existing installs.
                     if lockfile_version.at_least(Version::V2)
                         && npm_url_needs_integrity
                         && !pkg.meta.integrity.tag.is_supported()
@@ -2601,14 +2569,6 @@ pub fn parse_into_binary_lockfile(
                         return Err(ParseError::InvalidPackageInfo);
                     };
 
-                    // Reject an unsafe `.bun-tag`. For `git`, `Repository::checkout`
-                    // re-validates with the same guard before building any cache
-                    // path or invoking `git`, so this parse-time check is gated to
-                    // v2+ — older git lockfiles keep loading without reopening the
-                    // checkout hole. For `github` there is no such re-validation
-                    // (the tarball-download path feeds the tag straight into the
-                    // cache folder name), so the check must stay unconditional to
-                    // keep the path-traversal guard intact at every version.
                     let enforce_safe_tag =
                         tag == ResolutionTag::Github || lockfile_version.at_least(Version::V2);
                     if enforce_safe_tag && !crate::repository::is_safe_resolved_tag(bun_tag_str) {
