@@ -7,7 +7,6 @@ on:
 
 jobs:
   check-and-update:
-    if: github.repository == 'oven-sh/bun'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,9 +26,11 @@ jobs:
         run: |
           cd packages/bun-usockets/
           OUTPUT=$(bun generate-root-certs.mjs -v)
-          echo "cert_output<<EOF" >> $GITHUB_ENV
-          echo "$OUTPUT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          {
+            echo "cert_output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Check for changes and stage files
         id: check-changes
@@ -40,23 +41,25 @@ jobs:
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             
             # Get list of modified files and add them
-            git status --porcelain | while read -r status file; do
+            git status --porcelain | while read -r _ file; do
               # Remove leading status and whitespace
-              file=$(echo "$file" | sed 's/^.* //')
+              file=${file##* }
               echo "Adding changed file: $file"
               git add "$file"
             done
             
-            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "changes=true" >> "$GITHUB_OUTPUT"
             
             # Store the list of changed files
             CHANGED_FILES=$(git status --porcelain)
-            echo "changed_files<<EOF" >> $GITHUB_ENV
-            echo "$CHANGED_FILES" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
+            {
+              echo "changed_files<<EOF"
+              echo "$CHANGED_FILES"
+              echo "EOF"
+            } >> "$GITHUB_ENV"
           else
             echo "No changes detected"
-            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "changes=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create Pull Request
@@ -78,6 +81,6 @@ jobs:
           branch: certs/update-root-certs
           base: main
           delete-branch: true
-          labels:
-            - "automation"
-            - "root-certs"
+          labels: |
+            automation
+            root-certs
