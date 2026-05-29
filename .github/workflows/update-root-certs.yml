@@ -21,7 +21,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Generate root certs and capture output
+      - name: Generate root certs and metadata
         id: generate-certs
         run: |
           cd packages/bun-usockets/
@@ -67,8 +67,6 @@ jobs:
           commit-message: ${{ env.COMMIT_MSG }}
           title: "crypto: update root certificates to NSS ${{ env.NEW_VERSION }}"
           body: |
-            Updates Bun's bundled root certificate store to NSS ${{ env.NEW_VERSION }}.
-
             ${{ env.COMMIT_MSG }}
 
             ## Changed files
