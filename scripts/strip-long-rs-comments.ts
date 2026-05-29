@@ -227,7 +227,12 @@ async function main() {
       continue;
     }
 
-    writeFileSync(file, stripLongComments(src, min));
+    // Reuse the edits already planned above instead of re-running the full
+    // transform (planEdits + applyEdits) a second time inside stripLongComments.
+    const out = applyEdits(lines, edits);
+    let text = out.join("\n");
+    if (src.endsWith("\n") && !text.endsWith("\n")) text += "\n";
+    writeFileSync(file, text);
   }
 
   console.error(
