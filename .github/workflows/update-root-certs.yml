@@ -95,3 +95,4 @@ jobs:
           delete-branch: true
           labels: |
             automation
+            root-certs
