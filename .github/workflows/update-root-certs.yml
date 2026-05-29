@@ -25,12 +25,9 @@ jobs:
         id: generate-certs
         run: |
           cd packages/bun-usockets/
-          OUTPUT=$(bun generate-root-certs.mjs -v)
-          {
-            echo "cert_output<<EOF"
-            echo "$OUTPUT"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          CERT_METADATA=$(mktemp)
+          bun generate-root-certs.mjs -v -f "$CERT_METADATA"
+          cat "$CERT_METADATA" >> "$GITHUB_ENV"
 
       - name: Check for changes and stage files
         id: check-changes
@@ -67,15 +64,16 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "update(root_certs): Update root certificates $(date +'%Y-%m-%d')"
-          title: "update(root_certs) $(date +'%Y-%m-%d')"
+          commit-message: ${{ env.COMMIT_MSG }}
+          title: "crypto: update root certificates to NSS ${{ env.NEW_VERSION }}"
           body: |
-            Automated root certificates update
+            Updates Bun's bundled root certificate store to NSS ${{ env.NEW_VERSION }}.
 
-            ${{ env.cert_output }}
+            ${{ env.COMMIT_MSG }}
 
-            ## Changed Files:
-            ```
+            ## Changed files
+
+            ```text
             ${{ env.changed_files }}
             ```
           branch: certs/update-root-certs
