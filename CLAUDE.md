@@ -263,7 +263,6 @@ Built-in JavaScript modules use special syntax and are organized as:
 9. **Cross-platform** - Run `bun run rust:check-all` to compile across all targets (linux/macos/windows × x64/aarch64) when making platform-specific changes. `#[cfg(...)]`-gated code is not type-checked unless the matching target is built.
 10. **Debug builds** - Use `BUN_DEBUG_QUIET_LOGS=1` to disable debug logging, or `BUN_DEBUG_<SCOPE>=1` to enable a specific `bun_core::output` scoped logger
 11. **Be humble & honest** - NEVER overstate what you got done or what actually works in commits, PRs or in messages to the user.
-12. **Branch names must start with `claude/`** - This is a requirement for the CI to work.
 
 **ONLY** push up changes after running `bun bd test <file>` and ensuring your tests pass.
 
